@@ -24,8 +24,8 @@
 ## 3. 安全与合规（P0）
 现状：密钥从 .env.local 注入；审计事件表；脱敏扫描；镜像 digest 锁定。
 差距与措施：
-- 密钥管理用 .env 文件 → 迁到 Docker secrets / Vault / 云 KMS，支持轮换与不落地
-- 传输加密：本地 HTTP → 生产 HTTPS/HSTS，证书管理，Cookie Secure
+- ~~密钥管理用 .env 文件~~ → **Docker secrets 支持已实现**（`<NAME>_FILE` + `compose.prod.yaml` + `init-secrets.ps1`）；Vault/云 KMS 与自动轮换仍缺
+- ~~传输加密：本地 HTTP → 生产 HTTPS/HSTS~~ → **生产 HTTPS/HSTS 配置已实现**（`nginx-prod.conf` + `compose.prod.yaml`，静态验证通过）；真实证书与端到端 TLS 验收待现场
 - 静态加密：PG TDE/卷加密、备份加密存放
 - 供应链：镜像签名（cosign）、SBOM、漏洞扫描（Trivy）作为升级门禁
 - 审计不可篡改：append-only 表 + 哈希链或 WORM 存储；接入 SIEM

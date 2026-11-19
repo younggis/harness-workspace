@@ -42,6 +42,15 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\upgrade-check.ps1 -Version 0.2.2-rc.4
 ```
 
+## 生产形态（HTTPS + Secrets）
+```powershell
+.\scripts\init-secrets.ps1
+.\scripts\gen-devcert.ps1            # 仅自签名开发证书；生产请替换为真实证书
+docker compose --env-file .env.local -p harness-prod -f compose.prod.yaml up -d
+```
+`compose.prod.yaml` 使用 Docker secrets（`<NAME>_FILE` 注入）、HTTPS/HSTS、资源限制与日志轮转。
+端口 8080(HTTP 跳转)/8443(HTTPS)。生产需把证书换成受信任 CA，并把 `PORTAL_ORIGIN` 改为 https 域名。
+
 ## 企业身份（OIDC / MFA）
 在 `.env.local` 填入 OIDC 配置后，登录页自动显示“使用企业账号登录”：
 ```

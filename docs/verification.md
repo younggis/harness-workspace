@@ -371,6 +371,20 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - **待验证**：真实企业 IdP 的 discovery/JWKS/JIT 全流程（当前无 IdP 配置），
   以及生产 MFA 强制策略；`docs/TOB_READINESS.md` 中对应 P0 项仍需现场验收
 
+### 1.20 生产 HTTPS + Docker secrets（实现与静态验证通过）
+- `common/harness_common/config.py` 的 `_env()` 支持 `<NAME>_FILE`：优先从挂载的 secret
+  文件读取（compose/K8s secret），不再把口令放进进程环境；实测
+  `DEEPSEEK_API_KEY_FILE=secrets/deepseek_api_key.txt` → 读取长度 35、前缀 `sk-`
+- 新增 `scripts/init-secrets.ps1`：从 .env.local 生成 `secrets/*.txt`（gitignored，空值也建文件避免挂载失败）
+- 新增 `compose.prod.yaml`：HTTPS edge（8080→8443 跳转、TLS1.2/1.3、HSTS、安全头、
+  WebSocket）、Docker secrets 注入、每服务内存/CPU 限制、json-file 日志轮转；
+  `docker compose -f compose.prod.yaml config --quiet` 通过
+- 新增 `infra/nginx/nginx-prod.conf`；用注入 hosts 的方式 `nginx -t` 通过（`syntax is ok`）
+- 新增 `scripts/gen-devcert.ps1`：用 alpine/openssl 生成**自签名**开发证书
+  （`infra/nginx/certs/`，gitignored）；生产必须替换为受信任 CA/Let's Encrypt 证书
+- **待验证**：用真实域名证书启动 `harness-prod` 项目做 TLS 握手、Secure Cookie、
+  HSTS 与 WebSocket over TLS 的端到端验证（当前端口 8080 被开发栈占用，且无真实证书）
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

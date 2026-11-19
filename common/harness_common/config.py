@@ -11,6 +11,19 @@ from functools import lru_cache
 
 
 def _env(name: str, default: str = "") -> str:
+    """Read a setting, preferring a Docker/Kubernetes secret file when provided.
+
+    If `<NAME>_FILE` points to a mounted file, its contents (trimmed) are used
+    instead of the literal env var. This lets production inject secrets without
+    placing them in the process environment or Compose file.
+    """
+    path = os.environ.get(name + "_FILE", "")
+    if path and os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return fh.read().strip()
+        except OSError:
+            pass
     return os.environ.get(name, default)
 
 

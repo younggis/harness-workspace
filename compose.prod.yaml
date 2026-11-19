@@ -1,0 +1,121 @@
+# Production-shaped Compose: HTTPS edge, Docker secrets, resource limits, log rotation.
+# Use: docker compose --env-file .env.local -p harness-prod -f compose.prod.yaml up -d
+name: harness-prod
+
+x-common: &common
+  APP_ENV: production
+  INSTALLATION_ID: ${INSTALLATION_ID:-harness-prod}
+  PG_HOST: host.docker.internal
+  PG_PORT: ${PG_PORT:-5432}
+  PG_DATABASE: ${PG_DATABASE:-postgis}
+  PG_SCHEMA: ${PG_SCHEMA:-harness}
+  PORTAL_ORIGIN: ${PORTAL_ORIGIN:-https://portal.example.com:8443}
+  WORKSPACE_HOST_SUFFIX: ${WORKSPACE_HOST_SUFFIX:-.example.com:8443}
+  REASONING_EFFORT: ${REASONING_EFFORT:-high}
+  THINKING_ENABLED: ${THINKING_ENABLED:-true}
+  DSH_VERSION: ${DSH_VERSION:-0.2.2-rc.4}
+
+x-log: &log
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  edge:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"   # HTTP -> HTTPS redirect
+      - "8443:8443"   # TLS; replace with 443:8443 behind a real LB/cert
+    volumes:
+      - ./infra/nginx/nginx-prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+      - ./apps/portal/dist:/usr/share/nginx/portal:ro
+    depends_on: [api]
+    networks: [front]
+    restart: unless-stopped
+    mem_limit: 256m
+    <<: *log
+
+  api:
+    build: { context: ., dockerfile: services/api/Dockerfile }
+    environment:
+      <<: *common
+      PG_APP_USER: ${PG_APP_USER:-harness_app}
+      PG_APP_PASSWORD_FILE: /run/secrets/pg_app_password
+      RELAY_SIGNING_KEY_FILE: /run/secrets/relay_signing_key
+      SESSION_SIGNING_KEY_FILE: /run/secrets/session_signing_key
+      HARNESS_WORKSPACE_TOKEN_SEED_FILE: /run/secrets/workspace_token_seed
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_AUTO_PROVISION: ${OIDC_AUTO_PROVISION:-false}
+      OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      RELAY_BASE_URL: http://relay:8081
+    secrets: [pg_app_password, relay_signing_key, session_signing_key, workspace_token_seed, oidc_client_secret]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [relay]
+    networks: [front, control, backend]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    <<: *log
+
+  relay:
+    build: { context: ., dockerfile: services/relay/Dockerfile }
+    environment:
+      <<: *common
+      RELAY_SIGNING_KEY_FILE: /run/secrets/relay_signing_key
+    secrets: [relay_signing_key]
+    networks: [control]
+    restart: unless-stopped
+    mem_limit: 256m
+    <<: *log
+
+  llm:
+    build: { context: ., dockerfile: services/llm/Dockerfile }
+    environment:
+      <<: *common
+      PG_LLM_USER: ${PG_LLM_USER:-harness_llm}
+      PG_LLM_PASSWORD_FILE: /run/secrets/pg_llm_password
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+    secrets: [pg_llm_password, deepseek_api_key]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    networks: [backend]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    <<: *log
+
+  worker:
+    build: { context: ., dockerfile: services/worker/Dockerfile }
+    environment:
+      <<: *common
+      PG_APP_USER: ${PG_APP_USER:-harness_app}
+      PG_APP_PASSWORD_FILE: /run/secrets/pg_app_password
+      RELAY_SIGNING_KEY_FILE: /run/secrets/relay_signing_key
+      HARNESS_WORKSPACE_TOKEN_SEED_FILE: /run/secrets/workspace_token_seed
+    secrets: [pg_app_password, relay_signing_key, workspace_token_seed]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [backend]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    <<: *log
+
+networks:
+  front: {}
+  control: { internal: true }
+  backend: {}
+
+secrets:
+  pg_app_password: { file: ./secrets/pg_app_password.txt }
+  pg_llm_password: { file: ./secrets/pg_llm_password.txt }
+  relay_signing_key: { file: ./secrets/relay_signing_key.txt }
+  session_signing_key: { file: ./secrets/session_signing_key.txt }
+  workspace_token_seed: { file: ./secrets/workspace_token_seed.txt }
+  deepseek_api_key: { file: ./secrets/deepseek_api_key.txt }
+  oidc_client_secret: { file: ./secrets/oidc_client_secret.txt }

@@ -4,6 +4,7 @@
 *.env
 !db/*.env.example
 secrets/
+infra/nginx/certs/
 
 # python
 __pycache__/
