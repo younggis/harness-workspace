@@ -324,6 +324,36 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
   品牌化登录卡；所有动作接 ElMessage 成功/错误提示，不再静默失败
 - 依赖新增 `@element-plus/icons-vue`；离线 32 passed / 6 skipped
 
+### 1.17 浏览器集成测试套件（2026-11-19）
+用浏览器驱动真实页面（非 Mock）逐项验证：
+| Case | 操作 | 结果 |
+|---|---|---|
+| 1 | 错误密码登录 | ✅ 页面显示 `Invalid credentials` |
+| 2 | 正确密码登录（admin） | ✅ 跳转工作台，仅显示本人 1 个空间、统计卡正确 |
+| 3 | 点击“进入工作空间” | ✅ 票据 201 → 303 → dsh Web 打开，零控制台错误 |
+| 4 | 工作区选择 `/workspace` 后发消息 | ✅ 真实 DeepSeek 回复 `OK`，3 秒，9.6K tok |
+| 5 | 管理页 API | ✅ tenants 200(2)、users 200(6)、templates 200(23)、workspaces 200(1=本人) |
+| 6 | a1 越权访问 admin 空间 | ✅ 自己只见 1 个空间；他人空间 GET 404、票据 404 |
+| 7 | 登出后会话 | ✅ logout 200；随后 `/api/me` 401 |
+
+发现的小问题：新空间首次进入需要手动选目录（dsh 未提供稳定预选接口），手册 8 节允许记录该方式；
+后续可写 profile patch 预置 `/workspace`。离线 32 passed / 6 skipped。
+
+### 1.18 toB 能力补齐（2026-11-19）
+- 新增平台审计 `GET /api/admin/audit`（按租户/动作过滤）、用户生命周期
+  `PATCH /api/admin/users/{uid}`（停用级联撤销会话与成员）、会话列举/吊销
+  `GET /api/admin/users/{uid}/sessions`、`DELETE /api/admin/sessions/{sid}`；
+  实测 audit 200(100 条)、users 200(6)、某用户 sessions 200(7)
+- 实现 `scripts/backup.ps1`：pg_dump 自定义格式（仅 harness schema）+ 6 个卷 tar +
+  SHA256 + manifest，实测 `BACKUP_OK`（dump 78KB、6 卷、manifest）
+- 实现 `scripts/restore.ps1 -Target test -Manifest <file>`：仅恢复到隔离数据库
+  `harness_restore_test`，校验 checksum、清会话/票据/租约、epoch+1、从 stopped 恢复；
+  实测 `RESTORE_OK`（6 卷恢复、文件可见）。修复了 pg_restore17/PG12 的
+  `transaction_timeout` 不兼容、PowerShell 二进制重定向损坏 tar、级联删除顺序等问题
+- 新增 `tests/test_admin_ops.py` 3 项；离线总计 **35 passed / 6 skipped**
+- 完整 toB 差距与路线见 `docs/TOB_READINESS.md`；对外仍需 SSO/MFA、密钥托管、HTTPS、
+  渗透测试、多副本、升级门禁网络复验等 P0 项
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

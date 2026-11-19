@@ -186,6 +186,79 @@ def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep)
     } for ws, u in rows]}
 
 
+@router.patch("/admin/users/{uid}")
+async def patch_user(uid: uuid.UUID, body: dict, request: Request,
+                     db: DbSession, _admin: PlatformAdminDep):
+    user = db.get(m.User, uid)
+    if not user:
+        raise APIError("NOT_FOUND", "User not found")
+    status = body.get("status")
+    if status not in (m.USER_ACTIVE, m.USER_DISABLED):
+        raise APIError("CONFLICT", "status must be active or disabled")
+    user.status = status
+    if status == m.USER_DISABLED:
+        for sess in db.query(m.AuthSession).filter(
+            m.AuthSession.user_id == uid, m.AuthSession.revoked_at.is_(None)
+        ):
+            sess.revoked_at = datetime.now(timezone.utc)
+        for ms in db.query(m.Membership).filter(m.Membership.user_id == uid):
+            ms.status = m.MEMBER_DISABLED
+    db.add(m.AuditEvent(actor_id=_admin.user.id, target=user.login_norm,
+                        action="user.status", result=status,
+                        request_id=request.state.request_id))
+    db.commit()
+    await request.app.state.connections.close_user(uid)
+    return {"id": str(uid), "login_norm": user.login_norm, "status": user.status}
+
+
+@router.get("/admin/users/{uid}/sessions")
+def list_user_sessions(uid: uuid.UUID, db: DbSession, _admin: PlatformAdminDep):
+    rows = db.execute(
+        select(m.AuthSession).where(m.AuthSession.user_id == uid)
+        .order_by(m.AuthSession.created_at.desc())
+    ).scalars()
+    return {"items": [{
+        "id": str(x.id), "active_tenant_id": str(x.active_tenant_id) if x.active_tenant_id else None,
+        "expires_at": x.expires_at.isoformat(), "revoked_at": x.revoked_at.isoformat() if x.revoked_at else None,
+        "created_at": x.created_at.isoformat(),
+    } for x in rows]}
+
+
+@router.delete("/admin/sessions/{sid}")
+async def revoke_session(sid: uuid.UUID, request: Request,
+                         db: DbSession, _admin: PlatformAdminDep):
+    sess = db.get(m.AuthSession, sid)
+    if not sess:
+        raise APIError("NOT_FOUND", "Session not found")
+    sess.revoked_at = datetime.now(timezone.utc)
+    db.add(m.AuditEvent(actor_id=_admin.user.id, target=str(sess.user_id),
+                        action="session.revoke", result="success",
+                        request_id=request.state.request_id))
+    db.commit()
+    await request.app.state.connections.close_auth_session(sid)
+    return {"id": str(sid), "revoked": True}
+
+
+@router.get("/admin/audit")
+def platform_audit(db: DbSession, _admin: PlatformAdminDep,
+                   cursor: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                   tenant_id: uuid.UUID | None = None, action: str | None = None):
+    q = select(m.AuditEvent)
+    if tenant_id:
+        q = q.where(m.AuditEvent.tenant_id == tenant_id)
+    if action:
+        q = q.where(m.AuditEvent.action == action)
+    rows = db.execute(q.order_by(m.AuditEvent.occurred_at.desc()).offset(cursor).limit(limit)).scalars()
+    return {"items": [{
+        "id": str(e.id), "occurred_at": e.occurred_at.isoformat(),
+        "actor_id": str(e.actor_id) if e.actor_id else None,
+        "tenant_id": str(e.tenant_id) if e.tenant_id else None,
+        "workspace_id": str(e.workspace_id) if e.workspace_id else None,
+        "action": e.action, "target": e.target, "result": e.result,
+        "request_id": e.request_id,
+    } for e in rows], "cursor": cursor, "limit": limit}
+
+
 @router.get("/templates", response_model=list[s.TemplateOut])
 def list_templates(db: DbSession, _identity: IdentityDep):
     rows = db.execute(select(m.Template).where(m.Template.enabled.is_(True))).scalars()
