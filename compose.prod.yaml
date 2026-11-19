@@ -51,13 +51,23 @@ services:
       OIDC_AUTO_PROVISION: ${OIDC_AUTO_PROVISION:-false}
       OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
       RELAY_BASE_URL: http://relay:8081
+      REDIS_URL: redis://redis:6379/0
     secrets: [pg_app_password, relay_signing_key, session_signing_key, workspace_token_seed, oidc_client_secret]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    depends_on: [relay]
+    depends_on: [relay, redis]
     networks: [front, control, backend]
     restart: unless-stopped
     mem_limit: 512m
     cpus: 1.0
+    <<: *log
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    networks: [control]
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes: [redis_data:/data]
     <<: *log
 
   relay:
@@ -110,6 +120,9 @@ networks:
   front: {}
   control: { internal: true }
   backend: {}
+
+volumes:
+  redis_data: {}
 
 secrets:
   pg_app_password: { file: ./secrets/pg_app_password.txt }

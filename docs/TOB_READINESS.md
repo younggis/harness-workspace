@@ -35,7 +35,7 @@
 ## 4. 可靠性与运维（P0/P1）
 现状：单 API/worker 进程；租约队列；对账；健康检查；备份/恢复脚本已实现（需演练）。
 差距与措施：
-- 单点 → API 多副本 + 跨进程撤权通知（Redis pub/sub）；worker 多副本依赖租约（已具备）
+- ~~单点 → API 多副本 + 跨进程撤权通知（Redis pub/sub）~~ → **Redis pub/sub 跨进程撤权已实现**（`ConnectionRegistry` + `compose.prod.yaml` redis 服务），两副本真实端到端待验证；worker 多副本依赖租约已具备
 - PG 单点 → 托管 PG/主从 + 自动故障转移；备份 PITR
 - 备份恢复演练（T15）→ 用隔离数据库 + 测试卷前缀跑通，校验文件 SHA 与会话失效
 - 滚动升级：新模板注册 → 逐空间 rebuild → 保留旧镜像回滚；upgrade-check 已落地，需在网络恢复后验证

@@ -64,6 +64,9 @@ class Settings:
     oidc_auto_provision: bool = field(default_factory=lambda: _env("OIDC_AUTO_PROVISION", "false").lower() == "true")
     mfa_required: bool = field(default_factory=lambda: _env("MFA_REQUIRED", "false").lower() == "true")
 
+    # Cross-process revocation for multi-replica API deployments.
+    redis_url: str = field(default_factory=lambda: _env("REDIS_URL"))
+
     dsh_version: str = field(default_factory=lambda: _env("DSH_VERSION", "0.2.2-rc.4"))
     edge_port: int = field(default_factory=lambda: int(_env("EDGE_PORT", "8080")))
 

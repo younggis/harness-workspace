@@ -37,7 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = make_engine(settings.app_database_url(), schema=settings.pg_schema)
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
-    registry = ConnectionRegistry(lambda: app.state.session_factory)
+    registry = ConnectionRegistry(lambda: app.state.session_factory,
+                                  redis_url=settings.redis_url)
     app.state.connections = registry
 
     @app.on_event("startup")

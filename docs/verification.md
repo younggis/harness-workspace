@@ -385,6 +385,15 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - **待验证**：用真实域名证书启动 `harness-prod` 项目做 TLS 握手、Secure Cookie、
   HSTS 与 WebSocket over TLS 的端到端验证（当前端口 8080 被开发栈占用，且无真实证书）
 
+### 1.21 多副本撤权（Redis 跨进程广播，实现与离线验证通过）
+- `ConnectionRegistry` 增加 Redis pub/sub：本地关闭后向 `harness:revocations` 广播
+  `{sender, kind, ids}`，其它 API 副本收到后关闭本进程的匹配连接；
+  忽略自身消息，Redis 不可用时退化为 2 秒 DB 重查（安全网）
+- 参数化 `redis_url`（`REDIS_URL`）；`compose.prod.yaml` 增加 redis 服务与 api 的 `REDIS_URL`
+- `tests/test_multireplica.py` 2 项通过：本地关闭并广播、第二副本收到消息后关闭连接
+- 全量离线 **40 passed / 6 skipped**；`compose.prod.yaml config --quiet` 通过
+- **待验证**：真实两个 API 副本 + Redis 的端到端（停用空间后 3 秒内两副本的 WS 均关闭）
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
