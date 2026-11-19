@@ -424,6 +424,14 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
   `harness_test` schema 跑通全部迁移到 0005；PG 集成 3 项通过
 - 全量（含集成）**45 passed / 2 skipped**；默认离线 42 passed / 6 skipped
 
+### 1.24 容量基线采集（T17 部分）
+- 新增 `scripts/capacity-baseline.ps1`，生成 `docs/capacity.md`：宿主机（16 vCPU / 31.29 GB /
+  C: 59.93 GB 可用）、Docker disk usage、每容器 CPU/内存快照、
+  `harness.model_requests` 的按模型平均/最大延迟与 token 总量
+- 实测采集成功；runtime 容器约 0.3% CPU、~309 MiB / 1 GiB
+- **待验证**：T17 完整压测（冷/热启动各 5 次、1/2/4 空间并发固定任务、失败率、磁盘增长曲线）
+  需在专用测试环境执行，当前只提供可复跑采集与真实快照
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
