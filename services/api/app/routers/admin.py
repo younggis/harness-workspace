@@ -124,6 +124,68 @@ async def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, reques
     return {"tenant_id": str(tid), "user_id": str(uid), "role": ms.role, "status": ms.status}
 
 
+@router.get("/admin/users")
+def list_users(db: DbSession, _admin: PlatformAdminDep,
+               cursor: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)):
+    rows = db.execute(
+        select(m.User).order_by(m.User.created_at).offset(cursor).limit(limit)
+    ).scalars()
+    return {"items": [{
+        "id": str(u.id), "login_norm": u.login_norm, "display_name": u.display_name,
+        "is_platform_admin": u.is_platform_admin, "status": u.status,
+        "created_at": u.created_at.isoformat(),
+    } for u in rows]}
+
+
+@router.post("/admin/users/{uid}/password")
+def reset_password(uid: uuid.UUID, body: dict, request: Request,
+                   db: DbSession, _admin: PlatformAdminDep):
+    user = db.get(m.User, uid)
+    if not user:
+        raise APIError("NOT_FOUND", "User not found")
+    password = str(body.get("password", ""))
+    if len(password) < 12:
+        raise APIError("CONFLICT", "Password must be at least 12 characters")
+    user.password_hash = hash_password(password)
+    db.add(m.AuditEvent(actor_id=_admin.user.id, target=user.login_norm,
+                        action="user.password.reset", result="success",
+                        request_id=request.state.request_id))
+    db.commit()
+    return {"user_id": str(uid), "login_norm": user.login_norm, "password_reset": True}
+
+
+@router.get("/admin/tenants/{tid}/members")
+def list_members(tid: uuid.UUID, db: DbSession, identity: IdentityDep):
+    _require_tenant_scope(identity, tid)
+    rows = db.execute(
+        select(m.Membership, m.User)
+        .join(m.User, m.User.id == m.Membership.user_id)
+        .where(m.Membership.tenant_id == tid)
+        .order_by(m.Membership.created_at)
+    ).all()
+    return {"items": [{
+        "user_id": str(u.id), "login_norm": u.login_norm, "display_name": u.display_name,
+        "role": ms.role, "status": ms.status,
+    } for ms, u in rows]}
+
+
+@router.get("/admin/tenants/{tid}/workspaces")
+def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep):
+    _require_tenant_scope(identity, tid)
+    rows = db.execute(
+        select(m.Workspace, m.User)
+        .join(m.User, m.User.id == m.Workspace.owner_id)
+        .where(m.Workspace.tenant_id == tid)
+        .order_by(m.Workspace.created_at)
+    ).all()
+    return {"items": [{
+        "id": str(ws.id), "owner_id": str(u.id), "owner_login": u.login_norm,
+        "template_version": ws.template_version, "enabled": ws.enabled,
+        "desired_state": ws.desired_state, "observed_state": ws.observed_state,
+        "generation": ws.generation, "error_code": ws.error_code,
+    } for ws, u in rows]}
+
+
 @router.get("/templates", response_model=list[s.TemplateOut])
 def list_templates(db: DbSession, _identity: IdentityDep):
     rows = db.execute(select(m.Template).where(m.Template.enabled.is_(True))).scalars()

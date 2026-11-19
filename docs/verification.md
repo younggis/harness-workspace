@@ -293,6 +293,25 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
   `deb.debian.org` 的 Packages 索引连接失败（同镜像 `docker run` 内 apt 正常，属构建网络波动）；
   已有镜像与运行服务不受影响。候选镜像换版本后的完整门禁需在 Docker 网络恢复后复跑。
 
+### 1.15 管理后台交互梳理与重建（2026-11-19）
+用户反馈 `/admin` 点击无提示、密码不可查看、不清楚租户与用户关系。定位与处理：
+- 直接原因：`.env.local` 曾切到 `.localhost`，`nip.io` Origin 不再受信任 → `/api/admin/tenants`
+  等请求 401，`onMounted(load)` 抛错后被吞掉，页面停在 `No Data`。已恢复 nip.io 配置，
+  并在开发环境同时接受 `127.0.0.1` / `localhost` Origin（见 1.x 前的修复）
+- **关系模型**：User 是全局身份（密码全局唯一，Argon2id 单向哈希）；Membership 把 User
+  与 Tenant 关联并带 role(tenant_admin/member)/status；Workspace 归属 `(tenant_id, owner_id)`，
+  owner 必须是该租户的有效成员。一个用户可属于多个租户，登录后选当前租户
+- **密码**：不可查看是设计（单向哈希），页面顶部已明确说明；新建用户留空自动生成
+  16 位强密码，创建后在“一次性密码”弹窗显示/复制；另有“重置密码”生成新密码同样只显示一次
+- 新增后端：`GET /api/admin/users`、`POST /api/admin/users/{uid}/password`、
+  `GET /api/admin/tenants/{tid}/members`、`GET /api/admin/tenants/{tid}/workspaces`
+- 重建 `Admin.vue`：租户表（选择联动）、用户表、成员/空间/用量审计三页签、新建租户带配额、
+  新建用户带显示/隐藏与自动生成、成员添加/停用、空间分配、所有操作 ElMessage 成功/错误提示
+- 修复 `harness_app` 缺 `model_requests`/`budget_buckets` SELECT 权限导致用量页 500
+- 浏览器实测：租户/用户列表加载、选租户后成员与空间加载、用量（34 请求/518252 输入 token）
+  与审计事件正常；创建用户返回 201 并弹出一次性密码；修复了创建用户弹窗未关闭的小问题
+- 离线 32 passed / 6 skipped
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

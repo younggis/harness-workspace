@@ -29,7 +29,7 @@ def upgrade() -> None:
     # Least-privilege grants. Never grant to PUBLIC.
     app = "harness_app"
     llm = "harness_llm"
-    business_dml = [t for t in TABLES if t not in ("model_requests", "budget_buckets")]
+    business_dml = TABLES[:]  # app reads usage tables (model_requests, budget_buckets) too
     for t in business_dml:
         op.execute(f'GRANT SELECT, INSERT, UPDATE, DELETE ON "{t}" TO {app}')
     op.execute(f'GRANT SELECT, INSERT, UPDATE, DELETE ON "model_requests" TO {llm}')
