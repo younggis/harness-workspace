@@ -230,7 +230,7 @@ launcher 标志；`.node` 加载器与 `noexec` tmpfs 冲突；令牌交换回�
 
 ### 1.9 测试租户 / 登录 / 会话（通过，2026-11-19）
 用真实 API 创建 `test-tenant`，以及 `testadmin`(tenant_admin)/`testuser`(member)，口令
-`TestPassw0rd!2026`（仅本地 fixture）。复跑：`powershell -File .\scripts\_tenant_test.ps1`。
+（本地 fixture，口令由 `HARNESS_TEST_PASSWORD` 环境变量提供）。复跑：`powershell -File .\scripts\_tenant_test.ps1`。
 结果：
 - admin 登录 → 创建租户 201、用户 201、成员关系 200
 - testadmin 登录 → 200，租户列表 1 个，active_tenant 正确

@@ -1,8 +1,10 @@
 $ErrorActionPreference='Stop'
+$testPw=$env:HARNESS_TEST_PASSWORD
+if(-not $testPw){ throw 'Set HARNESS_TEST_PASSWORD in the environment' }
 $base='http://portal.127.0.0.1.nip.io:8080'
 $s=$null
 $r=Invoke-WebRequest -UseBasicParsing "$base/api/auth/login" -Method Post `
-  -Headers @{'Origin'=$base} -Body (@{login='testadmin';password='TestPassw0rd!2026'}|ConvertTo-Json -Compress) `
+  -Headers @{'Origin'=$base} -Body (@{login='testadmin';password=$testPw}|ConvertTo-Json -Compress) `
   -ContentType 'application/json' -SessionVariable s -TimeoutSec 15
 $csrf=($r.Content|ConvertFrom-Json).csrf_token
 Write-Output "login=$($r.StatusCode) user=$(($r.Content|ConvertFrom-Json).user.login_norm)"
