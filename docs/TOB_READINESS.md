@@ -5,12 +5,12 @@
 ## 1. 身份与访问（P0）
 现状：本地账号 + Argon2id + 进程内登录限流；Cookie 会话；平台/租户两级角色。
 差距与措施：
-- ~~无企业 SSO（OIDC/SAML/LDAP）与 SCIM 自动开通~~ → **OIDC Authorization Code + PKCE 已实现**（`auth_oidc.py` + `/api/auth/oidc/*`，JIT 开通可选）；真实 IdP 联调待现场。SCIM / SAML / LDAP 仍缺
+- ~~无企业 SSO（OIDC/SAML/LDAP）与 SCIM 自动开通~~ → OIDC Authorization Code + PKCE 与 **SCIM 2.0** 均已实现；真实 IdP 联调待现场。SAML / LDAP 仍缺
 - ~~无 MFA~~ → **TOTP MFA 已实现**（迁移 0005 + enroll/verify/disable/complete，已启用用户密码后需二次验证）；WebAuthn 与管理操作强制二次验证仍缺
 - 密码策略弱（仅长度）→ 复杂度、历史 password、定期更换、锁定阈值持久化（当前限流在进程内，重启失效）
 - 会话不能按用户列举/吊销 → 已新增 `GET /api/admin/users/{uid}/sessions`、`DELETE /api/admin/sessions/{sid}`；退出/停用/切租户已广播关闭长连
-- 无服务账号/API Token → 增加 scope、过期、审计主体
-- 角色过粗 → 增加细粒度 permission（如 workspace:read/files:write/billing:read），RBAC 表 + 策略检查中间件
+- ~~无服务账号/API Token~~ → SCIM 2.0 bearer token 已实现（`scim.py`，服务端到服务端）；服务账号 scope 仍待做
+- ~~角色过粗~~ → 11 项细粒度 permission + 角色映射已实现（`permissions.py`），已在管理端点强制；成员级 files:write 等待细化
 
 ## 2. 多租户与隔离（P0）
 现状：租户/成员/空间三层模型有效；每空间独立容器、卷、网络；跨租户返回 404。
