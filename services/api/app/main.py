@@ -12,7 +12,7 @@ from harness_common.db import make_engine, make_session_factory, ping
 from harness_common.errors import APIError, api_error_handler, error_response
 
 from . import routers
-from .routers import oidc, mfa
+from .routers import oidc, mfa, scim
 from .connections import ConnectionRegistry
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -59,7 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # Exact-Origin enforcement on state-changing browser requests.
         # No permissive credentialed CORS. Internal/health paths are server-to-server.
-        if request.method in WRITE_METHODS and not request.url.path.startswith(("/internal", "/health")):
+        if request.method in WRITE_METHODS and not request.url.path.startswith(("/internal", "/health", "/scim/")):
             origin = request.headers.get("origin")
             host = request.headers.get("host", "")
             if request.url.path == "/_platform/enter":
@@ -106,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # These must precede the gateway catch-all route, otherwise it swallows them.
     app.include_router(oidc.router)
     app.include_router(mfa.router)
+    app.include_router(scim.router)
     app.include_router(routers.gateway.router)
     return app
 

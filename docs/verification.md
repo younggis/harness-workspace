@@ -441,6 +441,14 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 全量离线 **43 passed / 7 skipped**
 - 真实栈复验：health 200；平台管理员 `/api/admin/audit` → 200；普通成员 a1 同一端点 → **403**（RBAC 生效）
 
+### 1.26 SCIM 2.0 用户开通
+- 新增 `services/api/app/routers/scim.py`：SCIM 2.0 User 资源（list/filter/get/create/patch/delete），
+  Bearer token 从 `SCIM_BEARER_TOKEN`（或 `_FILE` secret）读取，未配置时 503 禁用
+- 停用/删除 SCIM 用户会级联撤销会话并写审计；`/scim/` 写入不受浏览器 Origin 校验（服务端到服务端）
+- `tests/test_scim.py` 2 项通过：token 鉴权、用户创建→激活→停用→filter→删除生命周期
+- `.env.example`、init-secrets、compose.prod.yaml 已加入 SCIM secret；prod config 校验通过
+- 全量离线 **45 passed / 7 skipped**
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

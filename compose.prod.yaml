@@ -50,9 +50,10 @@ services:
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
       OIDC_AUTO_PROVISION: ${OIDC_AUTO_PROVISION:-false}
       OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      SCIM_BEARER_TOKEN_FILE: /run/secrets/scim_bearer_token
       RELAY_BASE_URL: http://relay:8081
       REDIS_URL: redis://redis:6379/0
-    secrets: [pg_app_password, relay_signing_key, session_signing_key, workspace_token_seed, oidc_client_secret]
+    secrets: [pg_app_password, relay_signing_key, session_signing_key, workspace_token_seed, oidc_client_secret, scim_bearer_token]
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: [relay, redis]
     networks: [front, control, backend]
@@ -132,3 +133,4 @@ secrets:
   workspace_token_seed: { file: ./secrets/workspace_token_seed.txt }
   deepseek_api_key: { file: ./secrets/deepseek_api_key.txt }
   oidc_client_secret: { file: ./secrets/oidc_client_secret.txt }
+  scim_bearer_token: { file: ./secrets/scim_bearer_token.txt }

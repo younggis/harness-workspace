@@ -21,6 +21,7 @@ $map=[ordered]@{
   'session_signing_key'    = $cfg.SESSION_SIGNING_KEY
   'workspace_token_seed'   = $cfg.HARNESS_WORKSPACE_TOKEN_SEED
   'oidc_client_secret'     = $cfg.OIDC_CLIENT_SECRET
+  'scim_bearer_token'      = $cfg.SCIM_BEARER_TOKEN
 }
 foreach($k in $map.Keys){
   # Always materialize the file (empty allowed) so Compose secret mounts never break.
