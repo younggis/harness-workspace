@@ -43,6 +43,14 @@ class Settings:
     session_signing_key: str = field(default_factory=lambda: _env("SESSION_SIGNING_KEY"))
     workspace_token_seed: str = field(default_factory=lambda: _env("HARNESS_WORKSPACE_TOKEN_SEED"))
 
+    # Enterprise identity (OIDC) and MFA
+    oidc_issuer: str = field(default_factory=lambda: _env("OIDC_ISSUER"))
+    oidc_client_id: str = field(default_factory=lambda: _env("OIDC_CLIENT_ID"))
+    oidc_client_secret: str = field(default_factory=lambda: _env("OIDC_CLIENT_SECRET"))
+    oidc_redirect_uri: str = field(default_factory=lambda: _env("OIDC_REDIRECT_URI"))
+    oidc_auto_provision: bool = field(default_factory=lambda: _env("OIDC_AUTO_PROVISION", "false").lower() == "true")
+    mfa_required: bool = field(default_factory=lambda: _env("MFA_REQUIRED", "false").lower() == "true")
+
     dsh_version: str = field(default_factory=lambda: _env("DSH_VERSION", "0.2.2-rc.4"))
     edge_port: int = field(default_factory=lambda: int(_env("EDGE_PORT", "8080")))
 

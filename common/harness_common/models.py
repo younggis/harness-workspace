@@ -66,6 +66,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default=USER_ACTIVE, nullable=False)
+    mfa_secret: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

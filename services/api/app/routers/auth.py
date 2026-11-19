@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from harness_common import models as m
@@ -68,7 +69,7 @@ def _revoke_session_dependents(db, session: m.AuthSession) -> None:
         ticket.used_at = now  # consume so a stale tab cannot redeem
 
 
-@router.post("/auth/login", response_model=s.LoginOut)
+@router.post("/auth/login")
 def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, settings: SettingsDep):
     login_norm = body.login.strip().lower()
     now = time.time()
@@ -82,6 +83,17 @@ def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, 
         _FAILED[login_norm].append(now)
         raise APIError("UNAUTHENTICATED", "Invalid credentials")  # generic message
     _FAILED.pop(login_norm, None)
+
+    # MFA: password alone is not a session when the user enrolled TOTP.
+    if user.mfa_enabled and user.mfa_secret:
+        from ..auth_oidc import sign_state
+        ticket = new_token(24)
+        signed = sign_state(f"{user.id}:{ticket}", settings.session_signing_key)
+        resp = JSONResponse({"mfa_required": True})
+        resp.set_cookie("harness_mfa", signed, max_age=300, httponly=True,
+                        samesite="lax", path="/",
+                        secure=str(settings.portal_origin).startswith("https://"))
+        return resp
 
     tenants = _user_tenants(db, user.id)
     active = tenants[0].id if tenants else None

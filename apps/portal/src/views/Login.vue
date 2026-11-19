@@ -13,24 +13,45 @@
         <el-form-item label="密码">
           <el-input v-model="password" type="password" size="large" show-password placeholder="请输入密码" :prefix-icon="Lock" @keyup.enter="submit" />
         </el-form-item>
+        <el-form-item v-if="mfaRequired" label="验证码">
+          <el-input v-model="mfaCode" size="large" placeholder="输入验证器中的 6 位代码" @keyup.enter="submit" />
+        </el-form-item>
         <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" style="margin-bottom:12px" />
         <el-button type="primary" size="large" class="submit" native-type="submit" :loading="busy">登录</el-button>
       </el-form>
+      <template v-if="oidcEnabled">
+        <el-divider><span class="divider-text">或</span></el-divider>
+        <el-button size="large" class="submit" @click="ssoLogin">使用企业账号登录</el-button>
+      </template>
       <div class="foot">登录即表示你同意遵循平台的使用与审计规范</div>
     </div>
   </div>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { api } from '../api'
 const login = ref(''), password = ref(''), busy = ref(false), error = ref('')
+const oidcEnabled = ref(false)
 const router = useRouter()
+onMounted(async () => {
+  try { oidcEnabled.value = (await api('/api/auth/oidc/config')).enabled } catch { /* ignore */ }
+})
+function ssoLogin() { window.location.href = '/api/auth/oidc/start' }
+const mfaRequired = ref(false), mfaCode = ref('')
 async function submit() {
   busy.value = true; error.value = ''
-  try { await api('/api/auth/login', { method:'POST', body: JSON.stringify({ login:login.value, password:password.value }) }); router.push('/') }
-  catch (e:any) { error.value = e.message || '登录失败' }
+  try {
+    if (mfaRequired.value) {
+      await api('/api/auth/mfa/complete', { method:'POST', body: JSON.stringify({ code: mfaCode.value }) })
+      router.push('/')
+    } else {
+      const r = await api('/api/auth/login', { method:'POST', body: JSON.stringify({ login:login.value, password:password.value }) })
+      if (r?.mfa_required) { mfaRequired.value = true; error.value = '' }
+      else router.push('/')
+    }
+  } catch (e:any) { error.value = e.message || '登录失败' }
   finally { busy.value = false }
 }
 </script>
@@ -44,5 +65,6 @@ h1 { margin:0;font-size:18px; }
 h2 { margin:0 0 4px;font-size:22px; }
 .tip { color:#909399;font-size:12px;margin:0 0 18px; }
 .submit { width:100%;margin-top:6px; }
+.divider-text { color:#a8abb2;font-size:12px; }
 .foot { text-align:center;color:#c0c4cc;font-size:11px;margin-top:18px; }
 </style>

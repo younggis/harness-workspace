@@ -354,6 +354,21 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 完整 toB 差距与路线见 `docs/TOB_READINESS.md`；对外仍需 SSO/MFA、密钥托管、HTTPS、
   渗透测试、多副本、升级门禁网络复验等 P0 项
 
+### 1.19 企业 SSO 与 MFA（实现完成，真实 IdP 待现场验证）
+- OIDC：新增 `services/api/app/auth_oidc.py`（discovery、authorize URL、PKCE S256、
+  token 交换、id_token JWS/JWKS 校验、nonce 校验、签名 state），端点
+  `GET /api/auth/oidc/config|/start|/callback`；支持 JIT 开通（`OIDC_AUTO_PROVISION`）。
+  配置项 OIDC_ISSUER/CLIENT_ID/CLIENT_SECRET/REDIRECT_URI 在 `.env.example`；
+  登录页在配置后显示“使用企业账号登录”
+- MFA：users 增加 `mfa_secret`/`mfa_enabled`（迁移 0005）；端点 enroll/verify/disable/complete；
+  已启用 MFA 的用户，密码正确后只返回 `mfa_required` 与短期票据，输入 TOTP 才建立会话；
+  登录页自动显示验证码输入
+- 离线测试 `tests/test_sso_mfa.py` 3 项通过（OIDC 默认关闭、TOTP 注册→验证→登录→完成、
+  错误码拒绝）；总计 **38 passed / 6 skipped**
+- 修复：网关 catch-all 路由先于新路由注册导致 404、JSONResponse 丢弃注入 Response 的 Cookie
+- **待验证**：真实企业 IdP 的 discovery/JWKS/JIT 全流程（当前无 IdP 配置），
+  以及生产 MFA 强制策略；`docs/TOB_READINESS.md` 中对应 P0 项仍需现场验收
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
