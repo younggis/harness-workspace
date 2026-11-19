@@ -21,6 +21,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="switch">切换租户</el-dropdown-item>
+              <el-dropdown-item command="mfa">安全设置（MFA）</el-dropdown-item>
               <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -30,6 +31,23 @@
     </el-header>
     <el-main class="content"><router-view /></el-main>
     <el-footer class="footer">Harness Workspace · 多租户 AI 开发工作台</el-footer>
+
+    <el-dialog v-model="mfaDialog" title="安全设置 · 双因素验证" width="440px">
+      <el-alert type="info" :closable="false" title="使用验证器 App（Google Authenticator / 1Password 等）扫描二维码或手动输入密钥" />
+      <div v-if="mfaSecret" class="mfa-secret">
+        <div class="hint">一次性密钥（仅显示一次）：</div>
+        <el-input v-model="mfaSecret" readonly />
+        <el-button size="small" @click="copySecret">复制</el-button>
+      </div>
+      <el-form label-width="90px" style="margin-top:16px">
+        <el-form-item label="验证码"><el-input v-model="mfaCode" placeholder="验证器中的 6 位代码" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button v-if="mfaSecret" @click="confirmMfa" type="primary">确认启用</el-button>
+        <el-button v-else @click="disableMfa" type="danger">关闭 MFA</el-button>
+        <el-button @click="mfaDialog=false">取消</el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
@@ -48,6 +66,9 @@ async function loadMe() { try { me.value = await api('/api/me') } catch { me.val
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
     await api('/api/auth/logout', { method: 'POST' }); me.value = null; ElMessage.success('已退出'); router.push('/login')
+  } else if (cmd === 'mfa') {
+    mfaSecret.value = ''; mfaCode.value = ''; mfaDialog.value = true
+    await enrollMfa()
   } else if (cmd === 'switch') {
     if (!me.value?.tenants?.length) { ElMessage.info('当前账号没有可切换的租户'); return }
     try {
@@ -59,6 +80,20 @@ async function onCommand(cmd: string) {
     } catch (e:any) { ElMessage.error(e.message) }
   }
 }
+const mfaDialog = ref(false), mfaSecret = ref(''), mfaCode = ref('')
+async function enrollMfa() {
+  try { const r = await api('/api/auth/mfa/enroll', { method:'POST', body:'{}' }); mfaSecret.value = r.secret; ElMessage.success('请用验证器扫描/输入密钥后确认') }
+  catch (e:any) { ElMessage.error(e.message) }
+}
+async function confirmMfa() {
+  try { await api('/api/auth/mfa/verify', { method:'POST', body: JSON.stringify({ code:mfaCode.value }) }); ElMessage.success('MFA 已启用'); mfaDialog.value=false; mfaSecret.value='' }
+  catch (e:any) { ElMessage.error(e.message) }
+}
+async function disableMfa() {
+  try { await api('/api/auth/mfa/disable', { method:'POST', body: JSON.stringify({ code:mfaCode.value }) }); ElMessage.success('MFA 已关闭'); mfaDialog.value=false }
+  catch (e:any) { ElMessage.error(e.message) }
+}
+function copySecret(){ navigator.clipboard?.writeText(mfaSecret.value).then(()=>ElMessage.success('已复制')) }
 onMounted(loadMe)
 </script>
 
@@ -76,4 +111,6 @@ onMounted(loadMe)
 .uname { font-size:13px;color:#303133; }
 .content { max-width:1280px; width:100%; margin:0 auto; padding:28px; }
 .footer { text-align:center;color:#a8abb2;font-size:12px;height:48px; }
+.mfa-secret { margin-top:14px;display:flex;align-items:center;gap:8px; }
+.mfa-secret .hint { font-size:12px;color:#606266;white-space:nowrap; }
 </style>

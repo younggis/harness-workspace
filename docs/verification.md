@@ -432,6 +432,15 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - **待验证**：T17 完整压测（冷/热启动各 5 次、1/2/4 空间并发固定任务、失败率、磁盘增长曲线）
   需在专用测试环境执行，当前只提供可复跑采集与真实快照
 
+### 1.25 MFA 自助 UI 与细粒度 RBAC
+- App.vue 用户下拉新增“安全设置（MFA）”：一键 enroll（显示一次性密钥、复制）、输入验证码确认启用、关闭 MFA
+- 新增 `services/api/app/permissions.py`：11 项细粒度权限（tenant/user/member/workspace/usage/audit/template 的读写），
+  角色映射：平台管理员全部、租户管理员 8 项、成员仅 workspace:read；
+  已对租户/用户/成员/空间/模板/用量/审计端点加 `require_permission` 依赖
+- `tests/test_rbac.py` 3 项通过：租户管理员有成员权限、普通成员无审计/用量/用户读权限、平台管理员全通过
+- 全量离线 **43 passed / 7 skipped**
+- 真实栈复验：health 200；平台管理员 `/api/admin/audit` → 200；普通成员 a1 同一端点 → **403**（RBAC 生效）
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

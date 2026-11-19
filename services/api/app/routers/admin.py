@@ -15,6 +15,7 @@ from .. import schemas as s
 from ..deps import (
     DbSession, IdentityDep, PlatformAdminDep, TenantAdminDep,
 )
+from ..permissions import Perm, require_permission
 
 router = APIRouter(prefix="/api")
 
@@ -27,7 +28,8 @@ def _require_tenant_scope(identity, tenant_id: uuid.UUID) -> None:
 
 
 @router.post("/admin/tenants", response_model=s.TenantBrief, status_code=201)
-def create_tenant(body: s.CreateTenantIn, request: Request, db: DbSession, _admin: PlatformAdminDep):
+def create_tenant(body: s.CreateTenantIn, request: Request, db: DbSession, _admin: PlatformAdminDep,
+                  _perm=require_permission(Perm.TENANT_WRITE)):
     if db.execute(select(m.Tenant).where(m.Tenant.slug == body.slug)).scalar_one_or_none():
         raise APIError("CONFLICT", "Tenant slug already exists")
     tenant = m.Tenant(
@@ -55,7 +57,8 @@ def list_tenants(db: DbSession, _admin: PlatformAdminDep,
 
 @router.patch("/admin/tenants/{tid}")
 async def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
-                       db: DbSession, _admin: PlatformAdminDep):
+                       db: DbSession, _admin: PlatformAdminDep,
+                       _perm=require_permission(Perm.TENANT_WRITE)):
     tenant = db.get(m.Tenant, tid)
     if not tenant:
         raise APIError("NOT_FOUND", "Tenant not found")
@@ -73,7 +76,8 @@ async def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
 
 
 @router.post("/admin/users", response_model=s.UserBrief, status_code=201)
-def create_user(body: s.CreateUserIn, request: Request, db: DbSession, _admin: PlatformAdminDep):
+def create_user(body: s.CreateUserIn, request: Request, db: DbSession, _admin: PlatformAdminDep,
+                _perm=require_permission(Perm.USER_WRITE)):
     login_norm = body.login.strip().lower()
     if db.execute(select(m.User).where(m.User.login_norm == login_norm)).scalar_one_or_none():
         raise APIError("CONFLICT", "Login already exists")
@@ -91,7 +95,8 @@ def create_user(body: s.CreateUserIn, request: Request, db: DbSession, _admin: P
 
 @router.put("/admin/tenants/{tid}/members/{uid}")
 async def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, request: Request,
-                     db: DbSession, identity: TenantAdminDep):
+                     db: DbSession, identity: TenantAdminDep,
+                     _perm=require_permission(Perm.MEMBER_WRITE)):
     _require_tenant_scope(identity, tid)
     target = db.get(m.User, uid)
     if not target or target.is_platform_admin and body.role == m.MEMBER_MEMBER:
@@ -126,6 +131,7 @@ async def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, reques
 
 @router.get("/admin/users")
 def list_users(db: DbSession, _admin: PlatformAdminDep,
+               _perm=require_permission(Perm.USER_READ),
                cursor: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)):
     rows = db.execute(
         select(m.User).order_by(m.User.created_at).offset(cursor).limit(limit)
@@ -139,7 +145,8 @@ def list_users(db: DbSession, _admin: PlatformAdminDep,
 
 @router.post("/admin/users/{uid}/password")
 def reset_password(uid: uuid.UUID, body: dict, request: Request,
-                   db: DbSession, _admin: PlatformAdminDep):
+                   db: DbSession, _admin: PlatformAdminDep,
+                   _perm=require_permission(Perm.USER_WRITE)):
     user = db.get(m.User, uid)
     if not user:
         raise APIError("NOT_FOUND", "User not found")
@@ -155,7 +162,8 @@ def reset_password(uid: uuid.UUID, body: dict, request: Request,
 
 
 @router.get("/admin/tenants/{tid}/members")
-def list_members(tid: uuid.UUID, db: DbSession, identity: IdentityDep):
+def list_members(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
+                 _perm=require_permission(Perm.MEMBER_READ)):
     _require_tenant_scope(identity, tid)
     rows = db.execute(
         select(m.Membership, m.User)
@@ -170,7 +178,8 @@ def list_members(tid: uuid.UUID, db: DbSession, identity: IdentityDep):
 
 
 @router.get("/admin/tenants/{tid}/workspaces")
-def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep):
+def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
+                           _perm=require_permission(Perm.WORKSPACE_READ)):
     _require_tenant_scope(identity, tid)
     rows = db.execute(
         select(m.Workspace, m.User)
@@ -188,7 +197,8 @@ def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep)
 
 @router.patch("/admin/users/{uid}")
 async def patch_user(uid: uuid.UUID, body: dict, request: Request,
-                     db: DbSession, _admin: PlatformAdminDep):
+                     db: DbSession, _admin: PlatformAdminDep,
+                     _perm=require_permission(Perm.USER_WRITE)):
     user = db.get(m.User, uid)
     if not user:
         raise APIError("NOT_FOUND", "User not found")
@@ -241,6 +251,7 @@ async def revoke_session(sid: uuid.UUID, request: Request,
 
 @router.get("/admin/audit")
 def platform_audit(db: DbSession, _admin: PlatformAdminDep,
+                   _perm=require_permission(Perm.AUDIT_READ),
                    cursor: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
                    tenant_id: uuid.UUID | None = None, action: str | None = None):
     q = select(m.AuditEvent)
@@ -269,7 +280,8 @@ def list_templates(db: DbSession, _identity: IdentityDep):
 
 
 @router.post("/admin/templates", response_model=s.TemplateOut, status_code=201)
-def register_template(body: dict, request: Request, db: DbSession, _admin: PlatformAdminDep):
+def register_template(body: dict, request: Request, db: DbSession, _admin: PlatformAdminDep,
+                      _perm=require_permission(Perm.TEMPLATE_WRITE)):
     version = str(body.get("version", ""))
     digest = str(body.get("image_digest", ""))
     if not version or not digest.startswith("sha256:"):
@@ -294,6 +306,7 @@ def register_template(body: dict, request: Request, db: DbSession, _admin: Platf
 
 @router.get("/admin/tenants/{tid}/usage")
 def tenant_usage(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
+                 _perm=require_permission(Perm.USAGE_READ),
                  start: str | None = None, end: str | None = None):
     _require_tenant_scope(identity, tid)
     rows = db.execute(
@@ -313,6 +326,7 @@ def tenant_usage(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
 
 @router.get("/admin/tenants/{tid}/audit")
 def tenant_audit(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
+                 _perm=require_permission(Perm.AUDIT_READ),
                  cursor: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)):
     _require_tenant_scope(identity, tid)
     rows = db.execute(
