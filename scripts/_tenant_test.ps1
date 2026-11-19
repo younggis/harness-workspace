@@ -1,4 +1,7 @@
 $ErrorActionPreference='Stop'
+$adminPw=$env:HARNESS_TEST_ADMIN_PASSWORD
+$testPw=$env:HARNESS_TEST_PASSWORD
+if(-not $adminPw -or -not $testPw){ throw 'Set HARNESS_TEST_ADMIN_PASSWORD and HARNESS_TEST_PASSWORD' }
 $base='http://portal.127.0.0.1.nip.io:8080'
 
 function New-Session($login,$password){
@@ -21,7 +24,7 @@ function Api($s,$csrf,$path,$method='GET',$body=$null,$extra=@{}){
 }
 
 Write-Output '--- 1) login as platform admin ---'
-$a=New-Session 'admin' 'AdminStr0ng!2026#local'
+$a=New-Session 'admin' $adminPw
 Write-Output "admin login=$($a.Body.user.login_norm) tenants=$($a.Body.tenants.Count)"
 
 Write-Output '--- 2) create test tenant ---'
@@ -33,9 +36,9 @@ $tid=($tenants|Where-Object{$_.slug -eq 'test-tenant'}).id
 Write-Output "tenant id=$tid"
 
 Write-Output '--- 3) create tenant admin + member ---'
-$ta=Api $a.Session $a.Csrf '/api/admin/users' 'POST' @{login='testadmin';display_name='Test Admin';password='TestPassw0rd!2026'}
+$ta=Api $a.Session $a.Csrf '/api/admin/users' 'POST' @{login='testadmin';display_name='Test Admin';password=$testPw}
 if($ta.Status -notin 201,409){ throw "create testadmin failed $($ta.Status) $($ta.Raw)" }
-$tu=Api $a.Session $a.Csrf '/api/admin/users' 'POST' @{login='testuser';display_name='Test User';password='TestPassw0rd!2026'}
+$tu=Api $a.Session $a.Csrf '/api/admin/users' 'POST' @{login='testuser';display_name='Test User';password=$testPw}
 if($tu.Status -notin 201,409){ throw "create testuser failed $($tu.Status) $($tu.Raw)" }
 
 Write-Output '--- 4) resolve user ids ---'
@@ -51,7 +54,7 @@ $m2=Api $a.Session $a.Csrf "/api/admin/tenants/$tid/members/$tuid" 'PUT' @{role=
 Write-Output "membership admin=$($m1.Status) member=$($m2.Status)"
 
 Write-Output '--- 6) login as testadmin ---'
-$b=New-Session 'testadmin' 'TestPassw0rd!2026'
+$b=New-Session 'testadmin' $testPw
 Write-Output "testadmin login=$($b.Body.user.login_norm) tenants=$($b.Body.tenants.Count) active=$($b.Body.active_tenant_id)"
 if($b.Body.active_tenant_id -ne $tid){ throw 'active tenant mismatch' }
 
@@ -74,6 +77,6 @@ try {
 }
 
 Write-Output '--- 10) testuser login ---'
-$u=New-Session 'testuser' 'TestPassw0rd!2026'
+$u=New-Session 'testuser' $testPw
 Write-Output "testuser login=$($u.Body.user.login_norm) tenants=$($u.Body.tenants.Count) active=$($u.Body.active_tenant_id)"
 Write-Output 'TENANT_TEST_DONE'

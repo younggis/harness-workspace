@@ -1,7 +1,9 @@
 $ErrorActionPreference='Stop'
+$adminPw=$env:HARNESS_TEST_ADMIN_PASSWORD
+if(-not $adminPw){ throw 'Set HARNESS_TEST_ADMIN_PASSWORD in the environment' }
 $base='http://127.0.0.1:8080'
 $s=$null
-$r=Invoke-WebRequest -UseBasicParsing "$base/api/auth/login" -Method Post -Headers @{'Origin'=$base} -Body (@{login='admin';password='AdminStr0ng!2026#local'}|ConvertTo-Json -Compress) -ContentType 'application/json' -SessionVariable s -TimeoutSec 15
+$r=Invoke-WebRequest -UseBasicParsing "$base/api/auth/login" -Method Post -Headers @{'Origin'=$base} -Body (@{login='admin';password=$adminPw}|ConvertTo-Json -Compress) -ContentType 'application/json' -SessionVariable s -TimeoutSec 15
 $csrf=($r.Content|ConvertFrom-Json).csrf_token
 $h=@{'Origin'=$base;'X-CSRF-Token'=$csrf}
 $env:PGPASSWORD='postgis'
