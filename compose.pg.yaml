@@ -1,0 +1,43 @@
+# Isolated PostgreSQL for PITR practice and backup drills.
+# Does NOT touch the existing Windows PostgreSQL on 5432.
+name: harness-pg-drill
+
+services:
+  pg:
+    image: postgis/postgis:16-3.6
+    environment:
+      POSTGRES_PASSWORD: ${PG_DRILL_PASSWORD:-postgres}
+      POSTGRES_DB: harness_drill
+    command:
+      - bash
+      - -c
+      - |
+        chown -R 999:999 /archive || true
+        exec docker-entrypoint.sh postgres \
+          -c wal_level=replica \
+          -c archive_mode=on \
+          -c archive_command='test ! -f /archive/%f && cp %p /archive/%f' \
+          -c max_wal_senders=10 \
+          -c wal_keep_size=256MB
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - pg_archive:/archive
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d harness_drill"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pg_drill]
+    restart: unless-stopped
+
+networks:
+  pg_drill:
+    # Reuse an existing network: Docker Desktop may have exhausted its address pools.
+    external: true
+    name: ${PG_DRILL_NETWORK:-harness-local-dev_backend}
+
+volumes:
+  pg_data: {}
+  pg_archive: {}

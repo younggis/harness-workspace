@@ -396,6 +396,19 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - **待验证**：真实两个 API 副本 + Redis 的端到端（停用空间后 3 秒内两副本的 WS 均关闭）；
   首次构建因 pypi 读超时失败，重试成功（依赖均已安装）
 
+### 1.22 PostgreSQL PITR 演练（通过）
+- 新增 `compose.pg.yaml`：独立 PG16 实例（15432），`wal_level=replica`、`archive_mode=on`、
+  WAL 归档到 `pg_archive` 卷；**不触碰本机 5432 的现有 GIS 数据库**
+- 新增 `scripts/pg-pitr-drill.ps1`：建基线数据 → pg_basebackup → 写入后续数据 →
+  用 `recovery_target_time` 恢复到基础备份时间点 → 校验行数
+- 实测：`archive_mode=on`；基线行 `before-backup`、后续行 `after-backup`；
+  恢复结果 `restored_rows=before-backup`（后续行被正确排除）→ **PITR_DRILL_PASS**
+- 修复：Docker 地址池耗尽（复用现有 compose 网络）、归档卷 UID 权限（chown 999）、
+  PowerShell 把 psql NOTICE 当终止错误
+- 演练资源已清理（容器/卷/临时目录），主栈 health 200；离线 40 passed / 6 skipped
+- 说明：这是独立 PG 实例的 PITR 能力验证；现有 Windows PG 实例启用归档需系统级配置变更，
+  按手册要求需维护者确认后实施
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
