@@ -1,4 +1,6 @@
-# 多租户 Web Harness（本地首版）
+# harness-workspace
+
+基于 DeepSeek Harness 的多租户 AI 工作台。管理员可分配和管理隔离的 Docker 工作空间，用户可在浏览器中查看 Agent 执行过程、编辑文件并使用 Linux 终端。
 
 实现规格见 `Harness-Implementation-Guide.md`；真实执行结果与「待验证」清单见
 `docs/verification.md`；上游版本锁定见 `upstream.lock.json`。
@@ -22,10 +24,11 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\up.ps1
 ```
 
-- **浏览器访问**：`http://portal.localhost:8080`
-- **空间域名**：`http://w-<uuid>.localhost:8080`（`*.localhost` 不生效时按 `docs/verification.md` 写 hosts，代理直连）
+- **浏览器访问**：`http://portal.127.0.0.1.nip.io:8080`
+  （本机 `portal.localhost` 在 WinINET 下解析失败，改用回环 DNS，未改 hosts；
+  代理需把这些 Host 加入「不使用代理」列表，见 `docs/verification.md` 2.3）
+- **空间域名**：`http://w-<uuid>.127.0.0.1.nip.io:8080`
 - **首个管理员**：由 `.\scripts\admin-create.ps1` 交互式创建，无内置默认密码。
-  本地开发库中已按此方式创建账号 `admin`（口令仅保存在维护者处）。
 
 ## 测试
 
@@ -34,24 +37,18 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（需 HARNESS_INTEGRATION=1）
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
-.\scripts\test.ps1 -Suite offline       # runtime/worker/gateway 改动后重跑 T03–T13
 ```
 
 ## 当前验收状态（摘要）
 
 - ✅ 真实 PG 引导、迁移（14 张表，0001_init）、管理员创建、容器→宿主认证登录
 - ✅ 离线 22 项通过（身份/租户/隔离/票据/幂等/配额/对账/签名）
-- ⚠️ 真实 DeepSeek 探针返回 401（提供的密钥无效）→ live 与 T14 Agent 真实生成待验证
-- ✅ runtime 镜像已构建（`dsh --version=0.2.2-rc.4`）；浏览器实测登录、租户/空间分配、
-  容器启动、票据兑换、三点 GeoJSON 上传下载、xterm 终端 echo 与读同一文件（COUNT 3）
-- ⚠️ DeepSeek 真实 Agent 生成 `result.json`、A2/B1 越权、停用后终端关闭、备份恢复与容量基线待验证
-  详见 `docs/verification.md` 第 1.7 / 2.1 节与第 4 节 T01–T17。
-
-## 本次现场验证使用的本地地址
-`http://portal.127.0.0.1.nip.io:8080`（`portal.localhost` 在本机 WinINET 下解析失败，改用回环 DNS，未改 hosts）。
-若本机启用了系统代理，需把 `portal.localhost;*.localhost;portal.127.0.0.1.nip.io;*.127.0.0.1.nip.io`
-加入代理的「不使用代理」列表，否则 Chrome 会把这些 Host 发给代理而打不开；
-改动位置与验证见 `docs/verification.md` 第 2.3 节。
+- ✅ 镜像构建、浏览器登录、租户/空间分配、票据兑换、文件与终端、真实 DeepSeek 对话
+- ✅ T14 完整业务链：Agent 用 Python 标准库统计三点 GeoJSON 写出 `result.json`
+  （`{"count": 3, "bbox": [0, 0, 3, 4]}`），网页与终端均可读取
+- ✅ Test Tenant / 登录 / 会话 / 工作空间进入实测通过（`docs/verification.md` 1.9 / 1.10）
+- ⚠️ A2/B1 跨租户越权实测、停用后终端关闭、备份恢复演练、容量基线 T17 待验证
+  详见 `docs/verification.md` 第 4 节 T01–T17。
 
 ## 结构
 
