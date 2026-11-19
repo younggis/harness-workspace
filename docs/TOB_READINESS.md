@@ -15,7 +15,7 @@
 ## 2. 多租户与隔离（P0）
 现状：租户/成员/空间三层模型有效；每空间独立容器、卷、网络；跨租户返回 404。
 差距与措施：
-- 运行时隔离未做渗透验证 → T06 用真实 runtime 探测另一空间、Docker socket、宿主 PG、外网；gVisor/Kata 作为高安全档
+- ~~运行时隔离未做渗透验证~~ → **T06 已自动化**（`runtime_isolation_probe.py` + integration 断言）；实测发现并修复了 runtime 误接默认 bridge 的重大漏洞，现在仅接入内部专网，宿主 PG/外网均不可达，model-proxy 可达；gVisor/Kata 作为高安全档仍可选
 - 网络出口策略固定但无租户级策略 → 增加 allowed_egress 配置，由 llm/relay 强制，runtime 默认无外网
 - 硬磁盘配额未实现（软限）→ 选支持 per-volume quota 的存储（如 CSI），或 Docker Desktop 之外用 LVM/btrfs 子卷
 - 租户生命周期不完整 → onboarding wizard、暂停/恢复、数据导出与销毁流水线（含备份清理）

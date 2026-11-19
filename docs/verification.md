@@ -409,6 +409,21 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 说明：这是独立 PG 实例的 PITR 能力验证；现有 Windows PG 实例启用归档需系统级配置变更，
   按手册要求需维护者确认后实施
 
+### 1.23 运行时隔离渗透验证（T06，发现并修复重大漏洞）
+- 新增 `scripts/runtime_isolation_probe.py`（在容器内运行）：断言 UID=10001、CapEff 为空、
+  rootfs 只读、无 Docker socket、无法访问宿主 PG、无法访问外网、只能访问 model-proxy、
+  无法访问其它空间别名
+- **首次实测发现严重漏洞**：runtime 容器被创建在默认 `bridge` 上（有宿主与外网通路），
+  再接入空间专网 → `no_host_pg=false`、`no_external_net=false`
+- 修复 `DockerRuntimeDriver.start/_container_config`：容器**只 birth 在空间 internal 网络**，
+  通过 NetworkingConfig + 显式重连确保 `rt-<uuid>-g<gen>` 别名生效；不再出现 `bridge`
+- 复测三个空间全部 `ISOLATION_PASS`（含 `no_host_pg`、`no_external_net`、`model_proxy_allowed`）
+- `tests/integration/test_docker.py` 增加：单一网络断言 + 容器内探针断言；
+  `HARNESS_INTEGRATION=1` 下 2 项通过
+- 同时修复从零迁移的幂等性（0002 索引 IF NOT EXISTS、0003/0005 列存在检查）并 bootstrap
+  `harness_test` schema 跑通全部迁移到 0005；PG 集成 3 项通过
+- 全量（含集成）**45 passed / 2 skipped**；默认离线 42 passed / 6 skipped
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

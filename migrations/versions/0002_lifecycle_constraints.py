@@ -38,14 +38,15 @@ def upgrade() -> None:
             ) t WHERE rn = 1
         )
     """)
-    op.create_index(
-        "uq_op_active_ws", "workspace_operations", ["workspace_id"], unique=True,
-        postgresql_where=sa.text("state IN ('queued','running')"),
-    )
-    op.create_index(
-        "uq_credential_active", "runtime_credentials", ["workspace_id", "generation"], unique=True,
-        postgresql_where=sa.text("revoked_at IS NULL"),
-    )
+    # 0001's create_all may already have emitted these indexes from model metadata.
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_op_active_ws
+        ON workspace_operations (workspace_id) WHERE state IN ('queued','running')
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_credential_active
+        ON runtime_credentials (workspace_id, generation) WHERE revoked_at IS NULL
+    """)
 
 
 def downgrade() -> None:

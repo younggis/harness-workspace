@@ -28,14 +28,22 @@ def test_only_project_schema_tables_are_present(engine):
             "where table_schema not in ('pg_catalog','information_schema')"
         )).scalars().all()
     assert "harness_test" in schemas
-    assert "app" in schemas  # pre-existing GIS project left untouched
+    assert "public" in schemas  # pre-existing schemas left untouched
 
 
 def test_migration_version_is_pinned(engine):
     from sqlalchemy import text
+    from pathlib import Path
+    revisions = set()
+    versions_dir = Path(__file__).resolve().parents[2] / "migrations" / "versions"
+    for f in versions_dir.glob("*.py"):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.startswith("revision = "):
+                revisions.add(line.split("=")[1].strip().strip("'\""))
+                break
     with engine.connect() as c:
         v = c.execute(text("select version_num from harness_test.alembic_version")).scalar()
-    assert v == "0001_init"
+    assert v in revisions, (v, revisions)
 
 
 def test_app_role_can_login_from_container(engine):

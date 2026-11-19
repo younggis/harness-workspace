@@ -14,7 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("templates", sa.Column("dsh_version", sa.String(64), nullable=True))
+    cols = [c["name"] for c in sa.inspect(op.get_bind()).get_columns("templates")]
+    if "dsh_version" not in cols:
+        op.add_column("templates", sa.Column("dsh_version", sa.String(64), nullable=True))
     op.execute("UPDATE templates SET dsh_version = '0.2.2-rc.4' WHERE dsh_version IS NULL")
 
 

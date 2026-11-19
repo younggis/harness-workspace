@@ -89,13 +89,21 @@ class DockerRuntimeDriver(RuntimeDriver):
         self._network(net, labels)
 
     def _container_config(self, spec: SpaceSpec, proj: str, home: str, net: str, *, model_token: str = ""):
+        from docker.types import EndpointConfig, NetworkingConfig
         labels = self._labels(spec)
+        alias = f"rt-{spec.workspace_id}-g{spec.generation}"
+        version = getattr(self.client.api, "_version", "1.43")
         return dict(
             name=self._names(spec)[3],
             image=spec.image,
             labels=labels,
             detach=True,
-            # attached explicitly below with the generation-scoped alias
+            # Born ONLY on the internal space network. Never the default bridge:
+            # the bridge would give the runtime host and internet access.
+            network=net,
+            networking_config=NetworkingConfig({
+                net: EndpointConfig(version=version, aliases=[alias]),
+            }),
             environment={
                 "DSH_HOME": "/dsh-home",
                 "DSH_PUBLIC_URL": f"http://{spec.workspace_host}/",
@@ -127,10 +135,15 @@ class DockerRuntimeDriver(RuntimeDriver):
         proj, home, net, name = self._names(spec)
         cfg = self._container_config(spec, proj, home, net, model_token=self.credential(spec))
         container = self.client.containers.run(**cfg)
-        # Give the runtime a globally unique, generation-scoped alias on its space
-        # network so relay can address it deterministically.
+        # Ensure the generation-scoped alias exists even if NetworkingConfig was
+        # ignored by this Docker version: reattach the single endpoint with it.
         alias = f"rt-{spec.workspace_id}-g{spec.generation}"
-        self.client.networks.get(net).connect(container, aliases=[alias])
+        net_obj = self.client.networks.get(net)
+        try:
+            net_obj.disconnect(container)
+        except Exception:
+            pass
+        net_obj.connect(container, aliases=[alias])
         return container.id
 
     def stop(self, spec: SpaceSpec) -> None:
