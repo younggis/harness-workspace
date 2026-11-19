@@ -392,7 +392,9 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 参数化 `redis_url`（`REDIS_URL`）；`compose.prod.yaml` 增加 redis 服务与 api 的 `REDIS_URL`
 - `tests/test_multireplica.py` 2 项通过：本地关闭并广播、第二副本收到消息后关闭连接
 - 全量离线 **40 passed / 6 skipped**；`compose.prod.yaml config --quiet` 通过
-- **待验证**：真实两个 API 副本 + Redis 的端到端（停用空间后 3 秒内两副本的 WS 均关闭）
+- 真实栈复验：API 镜像重建（含 redis/pyotp/PyJWT 依赖）后 health 200、OIDC config 200
+- **待验证**：真实两个 API 副本 + Redis 的端到端（停用空间后 3 秒内两副本的 WS 均关闭）；
+  首次构建因 pypi 读超时失败，重试成功（依赖均已安装）
 
 ## 5. 交付与复跑入口
 
