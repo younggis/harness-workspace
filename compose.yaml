@@ -1,0 +1,85 @@
+name: ${COMPOSE_PROJECT_NAME:-harness-local-dev}
+
+x-common-env: &common
+  APP_ENV: ${APP_ENV:-development}
+  INSTALLATION_ID: ${INSTALLATION_ID:-harness-local-dev}
+  PG_HOST: host.docker.internal
+  PG_PORT: ${PG_PORT:-5432}
+  PG_DATABASE: ${PG_DATABASE:-postgis}
+  PG_SCHEMA: ${PG_SCHEMA:-harness}
+  PORTAL_ORIGIN: ${PORTAL_ORIGIN:-http://portal.localhost:8080}
+  WORKSPACE_HOST_SUFFIX: ${WORKSPACE_HOST_SUFFIX:-.localhost:8080}
+  REASONING_EFFORT: ${REASONING_EFFORT:-high}
+  THINKING_ENABLED: ${THINKING_ENABLED:-true}
+
+services:
+  edge:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:${EDGE_PORT:-8080}:8080"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./apps/portal/dist:/usr/share/nginx/portal:ro
+    depends_on: [api]
+    networks: [front]
+    restart: unless-stopped
+
+  api:
+    build: { context: ., dockerfile: services/api/Dockerfile }
+    environment:
+      <<: *common
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:-http://portal.localhost:8080}
+      WORKSPACE_HOST_SUFFIX: ${WORKSPACE_HOST_SUFFIX:-.localhost:8080}
+      PG_APP_USER: ${PG_APP_USER:-harness_app}
+      PG_APP_PASSWORD: ${PG_APP_PASSWORD:-}
+      SESSION_SIGNING_KEY: ${SESSION_SIGNING_KEY:-}
+      RELAY_SIGNING_KEY: ${RELAY_SIGNING_KEY:-}
+      RELAY_BASE_URL: http://relay:8081
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [relay]
+    networks: [front, control, backend]
+    restart: unless-stopped
+
+  relay:
+    build: { context: ., dockerfile: services/relay/Dockerfile }
+    environment:
+      <<: *common
+      RELAY_SIGNING_KEY: ${RELAY_SIGNING_KEY:-}
+    networks: [control]
+    restart: unless-stopped
+
+  llm:
+    build: { context: ., dockerfile: services/llm/Dockerfile }
+    environment:
+      <<: *common
+      PG_LLM_USER: ${PG_LLM_USER:-harness_llm}
+      PG_LLM_PASSWORD: ${PG_LLM_PASSWORD:-}
+      PG_SCHEMA: ${PG_SCHEMA:-harness}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    networks: [backend]
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., dockerfile: services/worker/Dockerfile }
+    environment:
+      <<: *common
+      PG_APP_USER: ${PG_APP_USER:-harness_app}
+      PG_APP_PASSWORD: ${PG_APP_PASSWORD:-}
+      RELAY_SIGNING_KEY: ${RELAY_SIGNING_KEY:-}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - harness_runtime_image:/opt/harness:ro
+    networks: [backend]
+    restart: unless-stopped
+
+networks:
+  front: {}
+  control: { internal: true }
+  backend: {}
+
+volumes:
+  harness_runtime_image:

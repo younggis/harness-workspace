@@ -1,0 +1,77 @@
+-- One-time bootstrap for the harness platform. Run ONCE as the maintainer via
+-- an interactive password prompt; the superuser password is never stored.
+--   psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
+--
+-- Safety properties:
+--   * Touches ONLY the dedicated harness schema + three dedicated roles.
+--   * Does NOT modify existing GIS tables, public schema, default search_path,
+--     or install extensions. Does NOT grant to PUBLIC.
+--   * Refuses to proceed if a same-named object exists with a different owner.
+--   * Roles and schema set their own search_path; superuser password never enters app config.
+
+\set ON_ERROR_STOP on
+
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- Roles. Guard: a same-named role must already have the expected attributes,
+-- otherwise abort. We do NOT reset passwords here (done interactively via \password).
+-- ---------------------------------------------------------------------------
+DO $bootstrap$
+DECLARE
+  r record;
+  wanted text[] := ARRAY['harness_owner','harness_app','harness_llm'];
+  role_name text;
+BEGIN
+  FOREACH role_name IN ARRAY wanted LOOP
+    SELECT o.rolname, o.rolsuper, o.rolcreatedb, o.rolcreaterole
+      INTO r FROM pg_roles o WHERE o.rolname = role_name;
+    IF FOUND THEN
+      IF r.rolsuper OR r.rolcreatedb OR r.rolcreaterole THEN
+        RAISE EXCEPTION 'Role % exists but has elevated attributes; refusing to take over', role_name;
+      END IF;
+      RAISE NOTICE 'Role % already exists with safe attributes; reusing', role_name;
+    ELSE
+      EXECUTE format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE', role_name);
+      RAISE NOTICE 'Created role %', role_name;
+    END IF;
+  END LOOP;
+END
+$bootstrap$;
+
+-- ---------------------------------------------------------------------------
+-- Schema. Owner must be harness_owner; a same-named schema owned by someone
+-- else is a hard stop (never take over an unrelated object).
+-- ---------------------------------------------------------------------------
+DO $bootstrap$
+DECLARE
+  owner_name name;
+BEGIN
+  SELECT nspowner::regrole::name INTO owner_name
+    FROM pg_namespace WHERE nspname = 'harness';
+  IF FOUND THEN
+    IF owner_name <> 'harness_owner' THEN
+      RAISE EXCEPTION 'Schema harness exists but is owned by %; refusing', owner_name;
+    END IF;
+    RAISE NOTICE 'Schema harness already owned by harness_owner; reusing';
+  ELSE
+    CREATE SCHEMA harness AUTHORIZATION harness_owner;
+    RAISE NOTICE 'Created schema harness';
+  END IF;
+END
+$bootstrap$;
+
+-- ---------------------------------------------------------------------------
+-- Minimal grants. CONNECT on the database, USAGE on the schema only.
+-- No ALL, no PUBLIC, no changes to public schema or database defaults.
+-- ---------------------------------------------------------------------------
+GRANT CONNECT ON DATABASE postgis TO harness_owner, harness_app, harness_llm;
+GRANT USAGE ON SCHEMA harness TO harness_app, harness_llm;
+
+ALTER ROLE harness_owner IN DATABASE postgis SET search_path = harness, pg_catalog;
+ALTER ROLE harness_app   IN DATABASE postgis SET search_path = harness, pg_catalog;
+ALTER ROLE harness_llm   IN DATABASE postgis SET search_path = harness, pg_catalog;
+
+COMMIT;
+
+\echo 'Bootstrap complete. Next: set passwords with \\password harness_owner / harness_app / harness_llm, then fill .env.local and run migrate.ps1.'

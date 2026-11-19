@@ -1,0 +1,16 @@
+# Pinned runtime dependencies (Python 3.12). Generated lock: requirements.lock.txt
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+SQLAlchemy==2.0.36
+alembic==1.14.1
+psycopg[binary]==3.2.3
+httpx==0.28.1
+argon2-cffi==23.1.0
+python-multipart==0.0.20
+PyYAML==6.0.2
+websockets==14.1
+anyio==4.8.0
+email-validator==2.2.0
+openai==1.66.3
+docker==7.1.0

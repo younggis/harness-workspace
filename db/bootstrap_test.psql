@@ -1,0 +1,40 @@
+-- Isolated test bootstrap. NEVER reuse the development schema.
+-- Creates harness_test schema, harness_test_app + harness_test_owner roles and a
+-- separate migration version table (handled by Alembic version_table_schema).
+--   psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap_test.psql
+\set ON_ERROR_STOP on
+BEGIN;
+
+DO $t$
+DECLARE role_name text;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['harness_test_owner','harness_test_app'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE', role_name);
+      RAISE NOTICE 'Created test role %', role_name;
+    END IF;
+  END LOOP;
+END
+$t$;
+
+DO $t$
+DECLARE owner_name name;
+BEGIN
+  SELECT nspowner::regrole::name INTO owner_name FROM pg_namespace WHERE nspname = 'harness_test';
+  IF FOUND THEN
+    IF owner_name <> 'harness_test_owner' THEN
+      RAISE EXCEPTION 'Schema harness_test owned by %; refusing', owner_name;
+    END IF;
+  ELSE
+    CREATE SCHEMA harness_test AUTHORIZATION harness_test_owner;
+  END IF;
+END
+$t$;
+
+GRANT CONNECT ON DATABASE postgis TO harness_test_owner, harness_test_app;
+GRANT USAGE ON SCHEMA harness_test TO harness_test_app;
+ALTER ROLE harness_test_owner IN DATABASE postgis SET search_path = harness_test, pg_catalog;
+ALTER ROLE harness_test_app   IN DATABASE postgis SET search_path = harness_test, pg_catalog;
+
+COMMIT;
+\echo 'Test bootstrap complete. Set passwords with \\password harness_test_owner / harness_test_app.'

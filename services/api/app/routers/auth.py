@@ -1,0 +1,171 @@
+"""Authentication, tenant selection and logout."""
+from __future__ import annotations
+
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Request, Response
+from sqlalchemy import select
+
+from harness_common import models as m
+from harness_common.errors import APIError
+from harness_common.security import (
+    hash_password, new_token, sha256_text, token_hash, verify_password,
+)
+
+from .. import schemas as s
+from ..deps import (
+    CSRF_COOKIE, SESSION_COOKIE, DbSession, IdentityDep, SettingsDep,
+)
+
+router = APIRouter(prefix="/api")
+
+SESSION_TTL_SECONDS = 8 * 3600
+_FAILED: dict[str, list[float]] = {}
+_MAX_FAILURES = 5
+_WINDOW = 300
+
+
+def _user_tenants(db, user_id) -> list[m.Tenant]:
+    return list(db.execute(
+        select(m.Tenant)
+        .join(m.Membership, m.Membership.tenant_id == m.Tenant.id)
+        .where(
+            m.Membership.user_id == user_id,
+            m.Membership.status == m.MEMBER_ACTIVE,
+            m.Tenant.status == m.TENANT_ACTIVE,
+        )
+    ).scalars())
+
+
+def _set_session_cookies(response: Response, session_token: str, csrf_token: str, *, secure: bool) -> None:
+    response.set_cookie(
+        SESSION_COOKIE, session_token, max_age=SESSION_TTL_SECONDS,
+        httponly=True, samesite="lax", secure=secure, path="/", domain=None,
+    )
+    response.set_cookie(
+        CSRF_COOKIE, csrf_token, max_age=SESSION_TTL_SECONDS,
+        httponly=False, samesite="lax", secure=secure, path="/", domain=None,
+    )
+
+
+def _revoke_session_dependents(db, session: m.AuthSession) -> None:
+    now = datetime.now(timezone.utc)
+    for ws_sess in db.execute(
+        select(m.WorkspaceSession).where(
+            m.WorkspaceSession.auth_session_id == session.id,
+            m.WorkspaceSession.revoked_at.is_(None),
+        )
+    ).scalars():
+        ws_sess.revoked_at = now
+    for ticket in db.execute(
+        select(m.EntryTicket).where(
+            m.EntryTicket.auth_session_id == session.id,
+            m.EntryTicket.used_at.is_(None),
+        )
+    ).scalars():
+        ticket.used_at = now  # consume so a stale tab cannot redeem
+
+
+@router.post("/auth/login", response_model=s.LoginOut)
+def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, settings: SettingsDep):
+    login_norm = body.login.strip().lower()
+    now = time.time()
+    attempts = [t for t in _FAILED.get(login_norm, []) if now - t < _WINDOW]
+    if len(attempts) >= _MAX_FAILURES:
+        raise APIError("RATE_LIMITED", "Too many failed logins", retryable=True)
+    _FAILED[login_norm] = attempts
+
+    user = db.execute(select(m.User).where(m.User.login_norm == login_norm)).scalar_one_or_none()
+    if not user or user.status != m.USER_ACTIVE or not verify_password(user.password_hash, body.password):
+        _FAILED[login_norm].append(now)
+        raise APIError("UNAUTHENTICATED", "Invalid credentials")  # generic message
+    _FAILED.pop(login_norm, None)
+
+    tenants = _user_tenants(db, user.id)
+    active = tenants[0].id if tenants else None
+    session_token = new_token()
+    csrf_token = new_token(24)
+    auth = m.AuthSession(
+        id=uuid.uuid4(),
+        token_hash=token_hash(session_token),
+        user_id=user.id,
+        active_tenant_id=active,
+        csrf_hash=token_hash(csrf_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=SESSION_TTL_SECONDS),
+    )
+    db.add(auth)
+    db.add(m.AuditEvent(actor_id=user.id, action="auth.login", result="success",
+                        request_id=request.state.request_id))
+    db.commit()
+
+    secure = str(settings.portal_origin).startswith("https://")
+    _set_session_cookies(response, session_token, csrf_token, secure=secure)
+    return s.LoginOut(
+        user=s.UserBrief(id=user.id, login_norm=user.login_norm, display_name=user.display_name,
+                         is_platform_admin=user.is_platform_admin),
+        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        active_tenant_id=active,
+        csrf_token=csrf_token,
+    )
+
+
+@router.get("/me", response_model=s.MeOut)
+def me(request: Request, identity: IdentityDep, db: DbSession):
+    tenants = _user_tenants(db, identity.user.id)
+    return s.MeOut(
+        user=s.UserBrief(id=identity.user.id, login_norm=identity.user.login_norm,
+                         display_name=identity.user.display_name,
+                         is_platform_admin=identity.user.is_platform_admin),
+        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        active_tenant_id=identity.tenant_id,
+        csrf_token=request.cookies.get(CSRF_COOKIE, ""),
+    )
+
+
+@router.post("/auth/logout")
+def logout(request: Request, response: Response, identity: IdentityDep, db: DbSession):
+    now = datetime.now(timezone.utc)
+    identity.session.revoked_at = now
+    _revoke_session_dependents(db, identity.session)
+    db.add(m.AuditEvent(actor_id=identity.user.id, tenant_id=identity.tenant_id,
+                        action="auth.logout", result="success", request_id=request.state.request_id))
+    db.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    # Broadcast WS/PTY close is handled by the gateway connection registry on revocation.
+    request.app.state.__dict__.setdefault("revoked_sessions", set()).add(str(identity.session.id))
+    return {"status": "ok"}
+
+
+@router.post("/auth/active-tenant", response_model=s.MeOut)
+def set_active_tenant(body: s.ActiveTenantIn, response: Response, identity: IdentityDep, db: DbSession, settings: SettingsDep):
+    membership = db.execute(
+        select(m.Membership).where(
+            m.Membership.tenant_id == body.tenant_id,
+            m.Membership.user_id == identity.user.id,
+            m.Membership.status == m.MEMBER_ACTIVE,
+        )
+    ).scalar_one_or_none()
+    tenant = db.get(m.Tenant, body.tenant_id)
+    if not membership or not tenant or tenant.status != m.TENANT_ACTIVE:
+        raise APIError("FORBIDDEN", "No active membership for that tenant")
+    # Switching tenant revokes all existing workspace sessions/tickets for this login.
+    _revoke_session_dependents(db, identity.session)
+    identity.session.active_tenant_id = body.tenant_id
+    csrf_token = new_token(24)
+    identity.session.csrf_hash = token_hash(csrf_token)
+    db.commit()
+    secure = str(settings.portal_origin).startswith("https://")
+    response.set_cookie(CSRF_COOKIE, csrf_token, max_age=SESSION_TTL_SECONDS,
+                        httponly=False, samesite="lax", secure=secure, path="/", domain=None)
+    tenants = _user_tenants(db, identity.user.id)
+    return s.MeOut(
+        user=s.UserBrief(id=identity.user.id, login_norm=identity.user.login_norm,
+                         display_name=identity.user.display_name,
+                         is_platform_admin=identity.user.is_platform_admin),
+        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        active_tenant_id=body.tenant_id,
+        csrf_token=csrf_token,
+    )

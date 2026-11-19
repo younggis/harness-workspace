@@ -1,0 +1,85 @@
+{
+  "$comment": "M0 version lock. All values below were verified against GitHub / npm on 2026-11-18. Do not guess commits or config fields; upgrades must pass the same contract tests and be merged separately.",
+  "locked_at_utc": "2026-11-18T00:00:00Z",
+  "upstream": {
+    "name": "deepseek-harness",
+    "source_url": "https://github.com/deepseek-ai/deepseek-harness",
+    "license": "MIT",
+    "release_tag": "dsh-v0.2.2-rc.4",
+    "release_commit_sha": "3f321d32bfe382212a8ed8785c1d47a5a300aa23",
+    "master_head_at_lock": "ca33fd6843b205e279c7ccb6cb73a472c78f5760",
+    "master_head_date": "2026-11-17T14:17:01Z",
+    "package_version": "0.2.2-rc.4",
+    "npm_package": "@deepseek-ai/dsh",
+    "npm_dist_tag_used": "next",
+    "npm_versions_available_tail": [
+      "0.2.2-alpha.3", "0.2.2-rc.1", "0.2.2-rc.2", "0.2.2-rc.3", "0.2.2-rc.4"
+    ],
+    "build_mode": "npm-install-locked-version (no runtime npx of unlocked version)",
+    "node_engine": ">=24.9.0",
+    "package_manager": "pnpm@11.28.5",
+    "verified_host_toolchain": {
+      "node": "v26.13.0",
+      "npm": "11.20.0",
+      "pnpm_host": "10.33.0 (upgrade performed inside image via corepack to 11.28.5)",
+      "python": "3.12.0",
+      "docker": "29.9.2",
+      "docker_compose": "v5.6.1",
+      "os_type": "linux/amd64"
+    }
+  },
+  "runtime_image": {
+    "base": "node:24-bookworm-slim",
+    "base_digest": "PENDING_M0_BUILD_RECORD",
+    "dsh_web_port": 3080,
+    "run_uid": 10001,
+    "run_gid": 10001,
+    "start_command": "dsh --profile web --no-open --public-url http://w-<uuid>.localhost:8080/ --trusted-host w-<uuid>.localhost:8080",
+    "start_command_source": "docs/user/guide/public-deployments.md @ dsh-v0.2.2-rc.4",
+    "runtime_env": {
+      "DSH_HOME": "/dsh-home"
+    }
+  },
+  "auth_exchange": {
+    "source": "docs/user/guide/public-deployments.md @ dsh-v0.2.2-rc.4",
+    "entry": "GET / (mount root) exchanges launch token from printed URL for a signed session cookie",
+    "redirect": "302/303 to origin-root document; proxy must rewrite cookie Path to external mount",
+    "cookie": "host-only, Path=/ on backend, no Domain, Secure only on HTTPS leg",
+    "trusted_hosts_config": "Connection row: trustedHosts",
+    "public_url_config": "web-runtime row: publicUrl",
+    "verification_required_in_m0": [
+      "one 302/303 exchange at mount root",
+      "static asset real path after rewrite",
+      "WebSocket upgrade with Upgrade/Connection preserved",
+      "reconnect after upstream restart",
+      "upstream auth NOT disabled"
+    ],
+    "evidence_status": "PENDING_M0_E2E"
+  },
+  "model_config": {
+    "protocol": "openai-completions (OpenAI Chat Completions)",
+    "config_source": "active profile cordis.patch.yml (provider row)",
+    "upstream_base_url": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "reasoning_effort": "high",
+    "thinking": {"type": "enabled"},
+    "in_container_endpoint": "http://model-proxy:8090/v1",
+    "credential": "short-lived workspace+generation scoped token; supplier key only in llm service",
+    "evidence_status": "PENDING_M0_E2E"
+  },
+  "contracts_expected_from_m0": {
+    "samples_dir": "contracts/upstream/",
+    "items": [
+      "web HTTP request/response shapes (sanitized)",
+      "WebSocket upgrade + event names (sanitized)",
+      "tool call invocation/result ID correlation (sanitized)",
+      "approval prompt shape (sanitized)"
+    ],
+    "status": "PENDING_M0_E2E"
+  },
+  "third_party_notices": {
+    "upstream": "https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.4/THIRD_PARTY_NOTICES.md",
+    "local_notice_file": "docs/THIRD_PARTY_NOTICES.md",
+    "status": "PENDING_M0"
+  }
+}

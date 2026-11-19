@@ -1,0 +1,280 @@
+# 验收记录（持续更新）
+
+> 规则：只记录**实际执行过**的命令与结果；未运行的一律标记「待验证」；离线、真实
+> Docker/PostgreSQL、浏览器 E2E、真实 DeepSeek 四类结论严格区分，不用 Mock 代替集成结论。
+
+## 0. 环境与版本（已实测 2026-11-18）
+
+| 项 | 实测值 | 证据 |
+|---|---|---|
+| OS | Windows 11 / PowerShell 5.1 | `$PSVersionTable.PSVersion` |
+| Docker | 29.9.2, Compose v5.6.1, `linux/amd64`, overlayfs | `docker info` |
+| Docker 状态 | daemon 正常；已有 13 容器 / 13 镜像（含 `db-studio-*`、`python_backend-*`，**全程未改动**） | `docker ps -a` |
+| Python | 3.12.0（本地 `.venv`） | `python --version` |
+| Node / pnpm | v26.13.0 / 10.33.0（镜像内用 corepack 固定 pnpm 11.28.5） | `node -v`, `pnpm -v` |
+| PostgreSQL | Windows 服务 PID 11588，`127.0.0.1:5432/postgis`，**PostgreSQL 12.2** | psql `select version()` |
+| psql.exe | `C:\Program Files\QGIS 3.44.8\bin\psql.exe`（不在 PATH） | 文件搜索 |
+| F: 可用空间 | 约 1.3 GB（注意：npm/node_modules 未在本地安装） | `Get-PSDrive F` |
+| 上游 | `deepseek-ai/deepseek-harness` MIT，release `dsh-v0.2.2-rc.4` → `3f321d32…`，master `ca33fd68…`（2026-11-17） | GitHub API，见 `upstream.lock.json` |
+
+## 1. 已执行且通过
+
+### 1.1 真实 PostgreSQL 专用 schema 引导（通过）
+```
+psql -h 127.0.0.1 -U postgres -d postgis -W -f .\db\bootstrap.psql
+```
+结果：`harness_owner` / `harness_app` / `harness_llm` 三个非超级用户角色 + `harness`
+schema（owner=harness_owner）创建成功；未修改 `public`、未安装扩展、未授权 PUBLIC。
+随后仅对这三个专用角色设置口令。复核：
+`select rolname from pg_roles where rolname like 'harness%'` → 3 行；
+`select nspname,pg_get_userbyid(nspowner) from pg_namespace where nspname like 'harness%'` → 1 行。
+
+### 1.2 真实迁移（通过，含一次缺陷修复）
+```
+python -m alembic -c migrations/alembic.ini upgrade head
+```
+首次执行后 `harness` schema 表数为 0——定位为 `SET search_path` 显式开启事务导致
+Alembic 只提交 savepoint，外层回滚。修复：`migrations/env.py` 在 `SET search_path`
+后 `connection.commit()`。修复后复核：
+- `harness.alembic_version` = `0001_init`
+- `harness` schema 共 14 张表（13 业务表 + alembic_version）
+- `public` 仍为原有 3 张 PostGIS 表，`app` schema 的既有表未变动
+
+### 1.3 首个平台管理员（通过）
+```
+python services\api\cli.py admin-create     # 交互式；脚本化用 HARNESS_ADMIN_LOGIN/PASSWORD
+```
+结果：`harness.users` → `admin | t | active`。无内置默认口令。
+
+### 1.4 容器 → 宿主 PostgreSQL 真实登录（通过）
+```
+docker run --rm --add-host=host.docker.internal:host-gateway -e PGPASSWORD=*** `
+  postgres:12-alpine psql -h host.docker.internal -p 5432 -U harness_app -d postgis -w `
+  -c "select current_database(),current_user,inet_client_addr();"
+```
+结果：`postgis | harness_app | 127.0.0.1`。不只是 TCP 通，认证与解析均通过。
+
+### 1.5 离线测试（通过）
+```
+.\.venv\Scripts\python.exe -m pytest tests/ -q
+```
+结果：**22 passed**。覆盖：Argon2id、CSRF/Origin、relay 签名绑定与过期、登录限流与通用
+错误、租户/成员越权、幂等分配与配额、操作幂等与冲突、跨租户隔离、切租户吊销、
+disable 关闭入口、票据单次消费与 Host 绑定、worker 租约领取/处理/对账。
+
+### 1.6 上游版本锁定（已核实）
+`upstream.lock.json` 中的源码 URL、MIT、release tag/commit、npm 包版本、Node/pnpm 要求、
+Web 默认端口 3080、启动参数、代理与模型配置来源均取自 GitHub API 与锁定 tag 的文档；
+`contracts/upstream/README.md` 标记 `PENDING_M0_E2E`（未捕获真实事件样本，禁止臆造）。
+
+### 1.7 真实浏览器 + 容器全链路（通过，2026-11-18 现场）
+
+Docker Hub 恢复后重新构建成功，并在浏览器实测：
+
+```
+docker pull node:24-bookworm-slim
+docker build -t harness-runtime-base:0.2.2-rc.4 -f runtime/base/Dockerfile .
+docker compose --env-file .env.local -p harness-local-dev build api relay llm worker
+docker compose --env-file .env.local -p harness-local-dev up -d
+```
+
+- 镜像内 `dsh --version` = **0.2.2-rc.4**（锁定版本实测）。
+- `portal.localhost` 在本机不解析 → 按手册第 3 节改用 `portal.127.0.0.1.nip.io:8080`
+  与 `w-<uuid>.127.0.0.1.nip.io:8080`（公网 DNS 回环，未改 hosts）。
+- 浏览器 `http://portal.127.0.0.1.nip.io:8080/login` 用 `admin` 登录 → 200，`/api/me` 200。
+- 通过真实受保护 API 创建租户 A、用户 TA/A1、成员关系、模板 `base-v1`、A1 空间。
+- A1 登录后 `POST /api/workspaces/{wid}/actions/start` → 操作 `succeeded`、
+  `observed_state=running`；worker 实际创建带标签的 runtime 容器、双卷、专网。
+- 一次性票据 `POST /api/workspaces/{wid}/entry-tickets` → `POST /_platform/enter`（门户精确
+  Origin，携带 workspace Host）→ 303 到空间 Host，空间 Cookie 生效；浏览器侧收不到平台 Cookie。
+- 空间 Host 的文件链路：`PUT /_platform/file?path=points.geojson` → 200 + ETag
+  `e486d9df…`；`GET` 返回同一 ETag，`features.length = 3`；`GET /_platform/files` 列出该文件。
+- 空间 Host 的 WS 终端：浏览器 xterm 显示「已连接」；另用真实 WS 客户端（新票据兑换的
+  Cookie、精确 Host/Origin）发送 `echo HARNESS_OK` 得到回显，并读取同一个
+  `/workspace/points.geojson` 得到 `COUNT 3`。
+- 期间定位并修复的真实缺陷：nginx 在 `if` 中使用 `proxy_http_version` 导致 502；
+  workspace Host 的 `/_platform/ui/*`、`/assets/*`、`/index.html` 静态资源路由；
+  relay 丢失 query string；runtime 网络别名未生效；`fileservice.write_file` 新建文件误抛
+  `FileNotFoundError`；WS 路由依赖注入导致 403；"最后租户管理员"守卫误拒普通成员；
+  gateway/relay 重建后对账重连。修复后全部复跑通过，离线 22 项仍全绿。
+
+> 上述为**真实 Docker + PostgreSQL + 浏览器/WS** 集成，不是 Mock。
+> DeepSeek 真实 Agent 生成 `result.json` 仍未通过（见 2.1 密钥 401）。
+
+## 2. 已执行但失败 / 阻塞
+
+### 2.1 真实 DeepSeek 调用（失败：凭据无效）
+```
+python scripts\deepseek_smoke.py     # 读取 .env.local 的 DEEPSEEK_API_KEY
+```
+结果：HTTP **401**，`Authentication Fails, Your api key: ****322d is invalid`，
+`request_id: 55ec7e25-3897-471a-ad5b-4142dfa6632e`。
+结论：用户提供的密钥被上游拒绝。**live 套件（T09 live、T13 live、T14 Agent 真实生成）
+为「待验证」**，需更换有效密钥后重跑：
+```
+# 更新 .env.local 中 DEEPSEEK_API_KEY，然后
+.\scripts\test.ps1 -Suite live
+```
+密钥仅写入 gitignore 的 `.env.local`，未进入任何 fixture、报告或 committed 文件。
+
+### 2.2 runtime 镜像构建（历史失败，已恢复）
+```
+docker build -t harness-runtime-base:0.2.2-rc.4 -f runtime/base/Dockerfile .
+```
+两次均在 `#2 load metadata for node:24-bookworm-slim` 失败：
+`failed to fetch anonymous token ... dial tcp [2a03:2880:f12a:83:...]:443: connectex ...`。
+本机缓存有 `python:3.12-slim`、`nginx:alpine`，但无 Node 24 镜像；控制面镜像可构建，
+runtime（依赖 dsh 的 Node ≥24.9）需先解决 Docker Hub 访问。未使用未锁定的 npx 绕过。
+`upstream.lock.json` 的 `base_digest` 保持 `PENDING_M0_BUILD_RECORD`。
+
+## 3. 未执行（明确「待验证」）
+
+| 项 | 原因 | 可复跑命令 |
+|---|---|---|
+| runtime 镜像构建 | **已完成**：Docker Hub 恢复后 `node:24-bookworm-slim` 拉取成功，镜像构建完成，`dsh --version=0.2.2-rc.4` | `docker build -t harness-runtime-base:0.2.2-rc.4 -f runtime/base/Dockerfile .` |
+| 原生 dsh Web 启动、根路径 token→cookie 交换、WS 升级与断线续连 | 依赖上一项镜像 | `.\scripts\up.ps1` 后在浏览器打开空间 Host |
+| 浏览器 E2E（T04/T07/T08/T14 的网页部分） | **部分通过**：浏览器登录、票据兑换、文件页、xterm 连接已实测；完整自动化脚本未跑 | `$env:HARNESS_E2E=1; .\scripts\test.ps1 -Suite e2e` |
+| 真实 Docker/PG 集成套件 | 测试 schema 角色口令尚未交互式设置；未启动栈 | 先 `psql -f db\bootstrap_test.psql` + `\password`，再 `$env:HARNESS_INTEGRATION=1; .\scripts\test.ps1 -Suite integration` |
+| 前端 `pnpm run build` | 本地 F: 仅 1.3 GB，未安装 node_modules | 在 `apps/portal` 执行 `pnpm install && pnpm run build` |
+
+## 4. 第 12 节逐项状态
+
+| 编号 | 结果 | 说明 |
+|---|---|---|
+| T01 P0 环境 | **部分通过 / 待验证**：PG 引导、迁移、管理员、容器登录通过；重复启动两次与干净检出未跑 | `doctor.ps1` / `up.ps1` 两次 |
+| T02 P0 角色 | **离线通过**：TA 越权 B 返回 404、P 无文件权限、切租户吊销旧链接；UI 隐藏按钮之外的后端断言已覆盖 | `pytest tests/test_control_plane.py` |
+| T03 P0 隔离 | **离线通过**：跨空间 workspace/operation 统一 404；WS/终端真实隔离待集成 | 同上 + `test_worker.py` |
+| T04 P0 入口票据 | **离线通过**：单次消费、过期、错 Host、Origin 校验；原生上游直达与退出重开待 E2E | `test_entry_ticket_single_use_and_host_binding` |
+| T05 P0 并发配额 | **离线通过**：同键同参同操作、同键异参 409、重复分配幂等；10 并发与最后名额待集成 | `test_workspace_action_idempotency_and_conflict` |
+| T06 P0 网络/权限 | **部分通过**：容器→宿主 PG 认证通过；runtime 非 root/cap/mount 断言已写入集成套件，未实跑 | `tests/integration/test_docker.py` |
+| T07 P0 文件 | **集成通过（部分）**：浏览器/HTTP 真实上传三点 GeoJSON，PUT/GET ETag 一致，`features.length=3`，目录列表可见；父目录/符号链接/并发 412/128 MiB 边界未逐项跑 | 见 1.7；E2E 边界用例 |
+| T08 P0 终端 | **集成通过（部分）**：浏览器 xterm 显示「已连接」；真实 WS 客户端 `echo HARNESS_OK` 回显、读取同一文件 `COUNT 3`；Ctrl+C/resize/3 秒停用关闭待跑 | 见 1.7；E2E 用例 |
+| T09 P0 模型 | **通过**：真实 DeepSeek 流式 + 工具调用往返，容器实际写出文件（见 1.8） | 浏览器实测 + `test.ps1 -Suite live` |
+| T10 P0 审批/取消 | **代码完成 / 待验证**：dsh 原生审批复用，前端未接真实事件 | M0 事件样本缺失 |
+| T11 P0 恢复 | **部分通过**：卷/代际/凭据撤销模型已实现；强停 runtime 与会话恢复待集成 | T11 E2E |
+| T12 P0 故障 | **代码完成 / 待验证**：worker 租约接管、对账、失败释放名额已离线测试；Desktop/DB 失联待集成 | `test_worker.py` |
+| T13 P0 模型异常 | **代码完成 / 待验证**：401/429/超时/中断/缺 usage 分类与预算预留已实现；真实多空间预算待 live | `tests/live` |
+| T14 P0 完整业务 | **通过**：分配→登录→票据→Agent 写出 result.json（count=3，bbox 精确匹配）→网页查看→文件 API/终端可读；A2/B1 越权与停用关闭仍待验证 | 见 1.8 |
+| T15 P0 运维交付 | **待验证**：`backup.ps1`/`restore.ps1 -Target test` 已交付，恢复演练未跑 | 手工演练 |
+| T16 P0 日志与内容 | **代码完成 / 待验证**：脱敏、无敏感 CORS、下载 nosniff 已实现；合成标记扫描待跑 | 集成后扫描 |
+| T17 基线 容量 | **待验证**：需真实栈 | 冷/热启动各 5 次 |
+
+### 2.3 本机 Chrome 打不开链接（已定位并修复）
+现象：Chrome 打开 portal 链接失败、进入空间接口报错。根因：Windows 代理
+`127.0.0.1:7890` 已启用，其 `ProxyOverride` 只含 `localhost`、`127.*`，不含
+`portal.localhost` / `*.nip.io`，Chrome 把这两个 Host 发给代理导致失败；
+`curl --noproxy '*'` 对全部 Host 均 200，证明服务本身正常。
+处置：在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+的 `ProxyOverride` 末尾追加 `portal.localhost;*.localhost;portal.127.0.0.1.nip.io;*.127.0.0.1.nip.io`
+并调用 `InternetSetOption` 刷新 WinINET（可随时从该注册表值删回）。
+另外 `portal.localhost` 在 WinINET 下 DNS 解析失败，故本机统一使用
+`http://portal.127.0.0.1.nip.io:8080`。复测（走 WinINET 代理，同 Chrome）：
+登录 200 → 票据 201 → `/_platform/enter` 303 + Set-Cookie，门户 200、空间 UI 200。
+
+### 2.4 工作空间根路径 `/` 报 `{"raw":"Internal Server Error"}`（已修复）
+用户直接在浏览器打开空间根路径报 500。逐层定位并修复了 6 个真实缺陷：
+1. **dsh 进程根本没起来**：`dsh` 原生插件加载器会把 `.node` 复制到 `/tmp` 再 `dlopen`，
+   而 runtime 的加固 tmpfs 是 `noexec` → `failed to map segment`。
+   修复：容器注入 `NARB_DISABLE_NATIVE_CACHE=1`，直接从只读镜像加载插件。
+2. **令牌交换打回自身**：适配器用对外 URL 做根路径 token→cookie 交换，在容器内会
+   回到自己的 8080 形成回环。修复：改为请求 `127.0.0.1:3080`，仅携带对外 Host。
+3. **网关把 HTML 包成 JSON**：`_proxy` 对所有响应做 `_safe_json`，dsh 页面变成
+   `{"raw":"..."}`。修复：按 `content-type` 透传原始字节。
+4. **静态资源冲突**：dsh 与门户都用 `/assets/...`。修复：门户构建改 `base:'./'`，
+   edge 只把 `/_platform/ui/assets/` 指向门户，其余 `/assets/` 走网关到 dsh。
+5. **Origin 误判**：dsh 的 `/api/...` 在 workspace Host 上被按门户 Origin 校验 → 403。
+   修复：中间件按 Host 是否 `w-` 前缀选择期望 Origin。
+6. **原生 WS 未转发**：只有终端 WS 有代理。修复：gateway/relay/runtime 三端增加通用
+   WebSocket 转发，携带签名与 dsh Cookie；并修正 worker/Compose 未传递
+   `WORKSPACE_HOST_SUFFIX` 导致 dsh 信任域名不匹配的问题。
+
+复测（真实 HTTP + WS 客户端，走完整链路）：
+- 根路径 `200`，返回真实 dsh HTML；dsh 原生 `/api/...` `200`（不再 403）
+- `ws://w-<uuid>.127.0.0.1.nip.io:8080/api/remote.mux` **connected**
+- 浏览器空间根路径标题 `DeepSeek Harness`，控制台 **0 error**
+- 离线测试仍 22 passed / 6 skipped
+
+> 注意：直接打开空间根路径但没有票据会话时会得到 **401**（设计如此）。
+> 正确入口是从门户点「进入」，由一次性票据兑换空间 Cookie 后跳转。
+
+### 1.8 真实 Agent 对话与 GeoJSON 业务链（通过，2026-11-18）
+换用有效密钥后在浏览器实测完整业务链：
+- 登录 → 票据 → 进入工作空间 → 选工作区 `web` → 模型 `deepseek-flash`（harness 路由）
+- 输入任务「用 Python 标准库统计 points.geojson 的要素数与包围盒并写入 result.json」
+- Agent 真实调用 DeepSeek（经 llm 代理与预算表），写出 `count_bbox.py`，执行时因
+  `workspace-write` 沙箱拒绝写 `/workspace/result.json`，弹出审批，用户点「允许一次」后
+  实际写出文件；最终答案 `{"count": 3, "bbox": [0, 0, 3, 4]}`（与三点 fixture 精确一致）。
+- 容器内 `cat /workspace/result.json` = `{"count": 3, "bbox": [0, 0, 3, 4]}`；
+  浏览器 `/_platform/file?path=result.json` 返回 200 且同内容，文件列表含两个文件。
+- 用量 78.5K tok，5 轮 11 步，249 tok/s，缓存命中 85%。
+
+期间修复的关键缺陷：原生 WS text/binary 帧类型未保留（dsh 要求 text）；SSE 事件流被
+网关缓冲导致 500；llm 角色缺 SELECT 权限；`text(sql, params)` 用法错误；`created_at`
+非空；令牌被撤销后未轮换；模型 contextWindow 太小导致切换失败；`--patch` 必须是
+launcher 标志；`.node` 加载器与 `noexec` tmpfs 冲突；令牌交换回环等。
+
+**结论：T09（真实工具往返）与 T14（浏览器完整业务链）判定通过。**
+仍待验证：A2/B1 跨租户越权实测、停用后 3 秒关闭终端、备份恢复演练、容量基线。
+
+### 2.5 更新 DeepSeek 密钥后的对话链路（历史记录，已由 1.8 取代）
+用户换用新密钥 `sk-…48152`，实测官方非流式探针 **200**（有真实 request id），
+`.env.local` 与 llm 服务已更新；`dsh --dump-config --patch` 确认模型路由已注入：
+`llm-pi-ai.providers.harness` → `openai-completions` / `http://model-proxy:8090/v1`，
+`agent-default-model.provider=harness`；worker 注入 `HARNESS_MODEL_TOKEN`。
+但原生 dsh Web 的 `/api/remote.mux` WebSocket 握手仍被上游以 **401 unauthorized** 拒绝
+（见 runtime 适配器 `[adapter-ws] resp=401 body=b'unauthorized'`），页面停留在
+「重新连接中 / 正在加载工作区…」，因此**对话仍不可用**。
+根因已收敛到上游 dsh 的会话 Cookie/Host/Origin 组合在 WS 握手时不匹配，
+不是密钥问题；需要对照锁定版本继续调适配器，或用上游支持的预置工作区/会话接口。
+结论：T09/T14 的 Agent 真实生成仍标记「待验证」，不冒充通过。
+
+### 1.9 测试租户 / 登录 / 会话（通过，2026-11-19）
+用真实 API 创建 `test-tenant`，以及 `testadmin`(tenant_admin)/`testuser`(member)，口令
+`TestPassw0rd!2026`（仅本地 fixture）。复跑：`powershell -File .\scripts\_tenant_test.ps1`。
+结果：
+- admin 登录 → 创建租户 201、用户 201、成员关系 200
+- testadmin 登录 → 200，租户列表 1 个，active_tenant 正确
+- `/api/me` 200；同一 Cookie 重复请求返回同一用户（会话保持）
+- `/api/auth/logout` 200；此后 `/api/me` → **401**（会话被吊销）
+- testuser 登录 → 200，租户列表 1 个
+- 浏览器登录 testadmin → 200 并跳转 `/`；`/api/me` 返回 user=testadmin、
+  active=test-tenant，CSRF Cookie 正常
+
+### 1.10 Test Tenant 工作空间（通过，2026-11-19）
+在 `test-tenant` 下为 `testadmin` 分配工作空间
+`37c8fce0-5388-4d5d-bb69-62521ff5dee3`（模板 `base-v23`），启动后
+`observed_state=running`，runtime 容器与 `rt-<uuid>-g0` 别名均在。
+浏览器用 `testadmin` 登录 → 首页显示 Test Tenant / base-v23 / running / 「进入」→
+进入空间 Host → 选择工作区目录 `/workspace` → 模型 `deepseek-flash` 可用，
+`/_platform/files` 返回 200；发送「请只回复 OK」得到真实回复 **OK**（9.6K tok，1 秒）。
+复跑：`powershell -File .\scripts\_tenant_ws.ps1`。
+
+### 1.11 `stream interrupted` 失败定位与修复（2026-11-19）
+用户在 Test Tenant 空间问「当前系统是什么？」得到 `PI_AI_ERROR / stream interrupted`。
+定位：对应 `model_requests` 记录 latency≈20088ms、`usage_source=unknown`，正好是模型代理
+`httpx.ConnectTimeout(connect=20s)`——容器到 `api.deepseek.com` 的一次瞬时连接超时，
+不是密钥或沙箱问题（同一代理的普通调用 200，直接流式请求首字节 0.05s）。
+修复：`connect` 超时 20s→30s、读空闲 60s→120s；上游流式调用最多 3 次带退避重试；
+`model_requests` 插入改 `ON CONFLICT DO NOTHING` 保证重试幂等；异常打印 traceback 便于诊断。
+复跑同一问题：Agent 6 秒内成功回答（Debian 12 / WSL2 内核 / Node 24 / `/workspace` /
+DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
+
+## 5. 交付与复跑入口
+
+启动顺序（第 10 节）：
+```
+Copy-Item .env.example .env.local
+.\scripts\init-local.ps1
+# 维护者交互输入 postgres 口令后执行一次：
+psql -h 127.0.0.1 -U postgres -d postgis -W -f .\db\bootstrap.psql
+.\scripts\doctor.ps1
+.\scripts\build.ps1
+.\scripts\migrate.ps1
+.\scripts\admin-create.ps1
+.\scripts\up.ps1
+.\scripts\test.ps1 -Suite offline
+```
+浏览器：`http://portal.localhost:8080`。
+首个管理员：`admin-create.ps1` 交互创建（当前本地库已创建 `admin`）。
+本地域名：若 `*.localhost` 不解析，需在 hosts 写入 `127.0.0.1 portal.localhost` 与各
+`w-<uuid>.localhost`，并让代理软件对这些名称直连；hosts 不支持通配。
