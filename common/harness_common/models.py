@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer,
-    String, UniqueConstraint, Uuid,
+    String, UniqueConstraint, Uuid, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -111,6 +111,7 @@ class Template(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     version: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     image_digest: Mapped[str] = mapped_column(String(255), nullable=False)
+    dsh_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     cpu: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     memory_bytes: Mapped[int] = mapped_column(Integer, default=1073741824, nullable=False)
@@ -160,6 +161,12 @@ class WorkspaceOperation(Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "idempotency_key", name="uq_op_ws_key"),
         Index("ix_op_state_lease", "state", "lease_until"),
+        # At most one queued/running change per workspace (race-safe reconcile).
+        Index(
+            "uq_op_active_ws", "workspace_id", unique=True,
+            postgresql_where=text("state IN ('queued','running')"),
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
     )
 
 
@@ -191,12 +198,20 @@ class WorkspaceSession(Base):
 class RuntimeCredential(Base):
     __tablename__ = "runtime_credentials"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("workspaces.id"), nullable=False)
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    __table_args__ = (
+        # Exactly one active model token per workspace generation.
+        Index(
+            "uq_credential_active", "workspace_id", "generation", unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+    )
 
 
 class ModelRequest(Base):

@@ -19,6 +19,15 @@ try {
 Write-Host '--- compose images ---'
 Invoke-Compose -Cfg $cfg -Arguments @('build')
 
+Write-Host '--- runtime image (pinned dsh version) ---'
+Push-Location $Root
+try {
+    $ver = if ($cfg.DSH_VERSION) { $cfg.DSH_VERSION } else { '0.2.2-rc.4' }
+    & docker build --build-arg "DSH_VERSION=$ver" `
+        -t "harness-runtime-base:$ver" -f runtime/base/Dockerfile .
+    if ($LASTEXITCODE -ne 0) { throw 'runtime build failed' }
+} finally { Pop-Location }
+
 $out = Join-Path $Root 'docs'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $lines = @('# Built image inventory', '', "Built at: $((Get-Date).ToUniversalTime().ToString('o'))", '')

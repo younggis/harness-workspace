@@ -1,0 +1,168 @@
+{
+  "captured": true,
+  "source": "dsh v0.2.2-rc.4 session_projcache (real, sanitized)",
+  "rows": {
+    "modelSelection": {
+      "ver": 3,
+      "seq": 113,
+      "val": {
+        "lastUsed": {
+          "provider": "harness",
+          "model": "deepseek-flash"
+        },
+        "pending": null
+      }
+    },
+    "permissions": {
+      "ver": 2,
+      "seq": 113,
+      "val": {
+        "preset": "workspace-write",
+        "sandbox": "workspace-write",
+        "approval": "ask",
+        "seeded": true
+      }
+    },
+    "tokenUsage": {
+      "ver": 2,
+      "seq": 113,
+      "val": {
+        "totals": {
+          "uncachedInputTokens": 11242,
+          "outputTokens": 1689,
+          "cacheReadTokens": 65536,
+          "cacheWriteTokens": 0
+        },
+        "last": {
+          "turn": 5,
+          "step": 7,
+          "buckets": {
+            "uncachedInputTokens": 248,
+            "outputTokens": 233,
+            "cacheReadTokens": 11776,
+            "cacheWriteTokens": 0
+          }
+        }
+      }
+    },
+    "turnBoundary": {
+      "ver": 2,
+      "seq": 113,
+      "val": {
+        "openTurnStartSeq": null,
+        "lastStepStartSeq": 109,
+        "lastStepBoundary": {
+          "kind": "end",
+          "seq": 111
+        },
+        "lastTurn": 5
+      }
+    },
+    "sessionStats": {
+      "ver": 1,
+      "seq": 113,
+      "val": {
+        "turns": 5,
+        "steps": 11,
+        "llmMs": 11912,
+        "toolMs": 15975,
+        "ttftMs": 5136,
+        "ttftSteps": 7,
+        "decodeMs": 6776,
+        "decodeTokens": 1689,
+        "lastTurn": 5,
+        "openStep": null,
+        "pendingCalls": {}
+      }
+    },
+    "turnOutline": {
+      "ver": 2,
+      "seq": 113,
+      "val": {
+        "turns": [
+          {
+            "turn": 1,
+            "seq": 4,
+            "prompt": "统计 points.geojson 的要素数并写入 result.json",
+            "response": ""
+          },
+          {
+            "turn": 2,
+            "seq": 22,
+            "prompt": "",
+            "response": ""
+          },
+          {
+            "turn": 3,
+            "seq": 29,
+            "prompt": "用 Python 标准库读取 <path>",
+            "response": ""
+          },
+          {
+            "turn": 4,
+            "seq": 56,
+            "prompt": "重试：用 Python 标准库统计 <path> 的要素数并…",
+            "response": ""
+          },
+          {
+            "turn": 5,
+            "seq": 65,
+            "prompt": "请用 Python 标准库完成：读取 <path>",
+            "response": "完成。已用 Python 标准库（`json`）读取 `<path> `<path> ```json {\"count\": 3,…"
+          }
+        ],
+        "draft": ""
+      }
+    },
+    "userQuestions": {
+      "ver": 2,
+      "seq": 113,
+      "val": {
+        "inheritedEventCount": 0,
+        "timed": false,
+        "questions": {
+          "active": [],
+          "settled": []
+        }
+      }
+    },
+    "agentPreset": {
+      "ver": 1,
+      "seq": 113,
+      "val": "standard"
+    }
+  },
+  "observed_rows": [
+    "agentPreset",
+    "agentTeam",
+    "approvalState",
+    "contextBreakdown",
+    "contextPressure",
+    "conversationContinuation",
+    "goal",
+    "harnessDevLegacyPrompt",
+    "imageLimits",
+    "inbox",
+    "llmRetry",
+    "modelSelection",
+    "permissions",
+    "plan",
+    "sandboxMode",
+    "sessionListMetadata",
+    "sessionStats",
+    "subagent",
+    "subagentCatalog",
+    "subagentModelSelectionPolicy",
+    "subagentTiming",
+    "timeContext",
+    "title",
+    "titleInput",
+    "todos",
+    "tokenMeasurement",
+    "tokenUsage",
+    "turnBoundary",
+    "turnOutline",
+    "userQuestions",
+    "workingDirectory"
+  ]
+}

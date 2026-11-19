@@ -31,6 +31,7 @@ function New-Secret { [Convert]::ToBase64String([byte[]](1..48 | ForEach-Object 
 
 Set-IfEmpty 'RELAY_SIGNING_KEY' (New-Secret)
 Set-IfEmpty 'SESSION_SIGNING_KEY' (New-Secret)
+Set-IfEmpty 'HARNESS_WORKSPACE_TOKEN_SEED' (New-Secret)
 Set-IfEmpty 'INSTALLATION_ID' 'harness-local-dev'
 
 Set-Content -Path $local -Value $lines -Encoding utf8

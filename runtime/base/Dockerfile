@@ -1,6 +1,9 @@
 # Runtime image: fixed non-root UID, locked dsh version, no platform secrets.
 FROM node:24-bookworm-slim
 
+# Pinned by build.ps1 from .env.local. Never upgrade without upgrade-check.ps1.
+ARG DSH_VERSION=0.2.2-rc.4
+
 ENV DEBIAN_FRONTEND=noninteractive \
     DSH_HOME=/dsh-home \
     PNPM_HOME=/pnpm
@@ -13,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && corepack enable
 
 # Locked dsh release: never an unlocked runtime npx install.
-RUN npm install -g @deepseek-ai/dsh@0.2.2-rc.4 \
+RUN npm install -g @deepseek-ai/dsh@${DSH_VERSION} \
     && pip3 install --no-cache-dir --break-system-packages \
       fastapi==0.115.6 uvicorn==0.34.0 httpx==0.28.1 websockets==14.1 pydantic==2.10.4
 

@@ -37,7 +37,14 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（需 HARNESS_INTEGRATION=1）
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
+
+# 上游 dsh 升级门禁（构建候选镜像 + 契约/离线测试 + 记录）
+.\scripts\upgrade-check.ps1 -Version 0.2.2-rc.4
 ```
+
+## 产品化后续
+连接注册表与撤权、生命周期约束、契约样本与升级门禁已落地（见 `docs/verification.md` 1.12–1.14）；
+仍待推进：剩余 P0 隔离/停用 E2E、备份恢复演练、容量基线、远程/HTTPS 部署、K8s RuntimeDriver。
 
 ## 当前验收状态（摘要）
 

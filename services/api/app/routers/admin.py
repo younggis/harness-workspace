@@ -54,8 +54,8 @@ def list_tenants(db: DbSession, _admin: PlatformAdminDep,
 
 
 @router.patch("/admin/tenants/{tid}")
-def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
-                 db: DbSession, _admin: PlatformAdminDep):
+async def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
+                       db: DbSession, _admin: PlatformAdminDep):
     tenant = db.get(m.Tenant, tid)
     if not tenant:
         raise APIError("NOT_FOUND", "Tenant not found")
@@ -66,6 +66,9 @@ def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
     db.add(m.AuditEvent(actor_id=_admin.user.id, tenant_id=tid, action="tenant.patch",
                         result="success", request_id=request.state.request_id))
     db.commit()
+    if tenant.status != m.TENANT_ACTIVE:
+        ids = set(db.execute(select(m.Workspace.id).where(m.Workspace.tenant_id == tid)).scalars())
+        await request.app.state.connections.close_workspaces(ids)
     return {"id": str(tenant.id), "status": tenant.status, "name": tenant.name}
 
 
@@ -87,8 +90,8 @@ def create_user(body: s.CreateUserIn, request: Request, db: DbSession, _admin: P
 
 
 @router.put("/admin/tenants/{tid}/members/{uid}")
-def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, request: Request,
-               db: DbSession, identity: TenantAdminDep):
+async def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, request: Request,
+                     db: DbSession, identity: TenantAdminDep):
     _require_tenant_scope(identity, tid)
     target = db.get(m.User, uid)
     if not target or target.is_platform_admin and body.role == m.MEMBER_MEMBER:
@@ -116,13 +119,16 @@ def set_member(tid: uuid.UUID, uid: uuid.UUID, body: s.SetMemberIn, request: Req
     db.add(m.AuditEvent(actor_id=identity.user.id, tenant_id=tid, target=str(uid),
                         action="membership.set", result="success", request_id=request.state.request_id))
     db.commit()
+    if body.status != m.MEMBER_ACTIVE:
+        await request.app.state.connections.close_user(uid)
     return {"tenant_id": str(tid), "user_id": str(uid), "role": ms.role, "status": ms.status}
 
 
 @router.get("/templates", response_model=list[s.TemplateOut])
 def list_templates(db: DbSession, _identity: IdentityDep):
     rows = db.execute(select(m.Template).where(m.Template.enabled.is_(True))).scalars()
-    return [s.TemplateOut(version=t.version, image_digest=t.image_digest, cpu=t.cpu,
+    return [s.TemplateOut(version=t.version, image_digest=t.image_digest,
+                          dsh_version=t.dsh_version, cpu=t.cpu,
                           memory_bytes=t.memory_bytes, pids_limit=t.pids_limit, enabled=t.enabled)
             for t in rows]
 
@@ -137,6 +143,7 @@ def register_template(body: dict, request: Request, db: DbSession, _admin: Platf
         raise APIError("CONFLICT", "Template version already published (versions are immutable)")
     tpl = m.Template(
         id=uuid.uuid4(), version=version, image_digest=digest,
+        dsh_version=str(body.get("dsh_version", "0.2.2-rc.4")),
         profile_hash=str(body.get("profile_hash", "")),
         cpu=int(body.get("cpu", 1)), memory_bytes=int(body.get("memory_bytes", 1073741824)),
         pids_limit=int(body.get("pids_limit", 256)),
@@ -145,7 +152,8 @@ def register_template(body: dict, request: Request, db: DbSession, _admin: Platf
     db.add(m.AuditEvent(actor_id=_admin.user.id, action="template.register", target=version,
                         result="success", request_id=request.state.request_id))
     db.commit()
-    return s.TemplateOut(version=tpl.version, image_digest=tpl.image_digest, cpu=tpl.cpu,
+    return s.TemplateOut(version=tpl.version, image_digest=tpl.image_digest,
+                         dsh_version=tpl.dsh_version, cpu=tpl.cpu,
                          memory_bytes=tpl.memory_bytes, pids_limit=tpl.pids_limit, enabled=tpl.enabled)
 
 

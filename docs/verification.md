@@ -259,6 +259,40 @@ launcher 标志；`.node` 加载器与 `noexec` tmpfs 冲突；令牌交换回�
 复跑同一问题：Agent 6 秒内成功回答（Debian 12 / WSL2 内核 / Node 24 / `/workspace` /
 DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 
+### 1.12 产品化第一批：连接注册表与撤权（通过，2026-11-19）
+新增 `services/api/app/connections.py`：进程内连接注册表，WS 与 `/plugins/events` SSE
+均登记 `workspace_id / auth_session_id / user_id / epoch / generation`；
+- 每 2 秒重查 DB（会话撤销、过期、用户禁用、空间停用、epoch/generation 变化），
+  DB 不可用则关闭无法续验的连接
+- 停用/停止空间、登出、切租户、成员停用、租户停用立即广播关闭
+- 离线测试 `tests/test_connections.py` 5 项通过（广播、撤销、停用、DB 故障、按用户/会话关闭）
+
+### 1.13 产品化第二批：生命周期一致性（通过）
+- 新增部分唯一索引：`uq_op_active_ws`（每空间仅一个 queued/running 操作）、
+  `uq_credential_active`（每空间每代仅一个有效凭据）；迁移 0002/0003/0004 已应用
+  （当前版本 `0004_credential_hash_reissue`）
+- 工作空间模型令牌改为由高熵种子 HMAC(wid:generation) 确定性派生，worker 重启不会与
+  容器内已注入令牌不一致；撤销后可重新签发（去掉 token_hash 全局唯一索引）
+- 令牌到期前 10 分钟自动 rebuild 轮换（保留卷）
+- 修复 rebuild 三个真实缺陷：网络被 relay/llm 占用无法删除、卷带 generation 标签导致
+  LABEL_CONFLICT、失败遗留的旧代容器未清理；改为按标签清理整个空间的容器与网络
+- 实测：Test Tenant 空间 rebuild 成功（generation 2，单容器 running），容器内令牌与
+  数据库有效凭据哈希一致；两个空间均恢复为有效令牌；会话历史在重建后仍可恢复
+- 离线 32 passed / 6 skipped
+
+### 1.14 产品化第三批：契约样本与升级门禁（部分通过）
+- 真实抓取并脱敏的样本：`contracts/upstream/{web-http,events-sse,web-ws,session-contract}.sanitized.json`
+  （来源：运行中的 dsh-v0.2.2-rc.4，`scripts/capture_contracts.py` 与
+  `scripts/capture_session_contract.py`）
+- `tests/test_upstream_contracts.py` 4 项通过：样本存在/脱敏、303 交换与根 HTML、
+  text WS 形状、会话投影行（modelSelection/permissions/tokenUsage 等）
+- Dockerfile 改 `ARG DSH_VERSION`，`build.ps1` 从 `.env.local` 传入；
+  `templates` 增 `dsh_version` 列（迁移 0003）；`scripts/upgrade-check.ps1` 构建候选镜像、
+  校验镜像内版本、跑契约+离线门禁并记录 `docs/upgrades.md`
+- **待验证**：`upgrade-check.ps1` 的完整构建步骤当前被环境阻断——build 内 apt 拉取
+  `deb.debian.org` 的 Packages 索引连接失败（同镜像 `docker run` 内 apt 正常，属构建网络波动）；
+  已有镜像与运行服务不受影响。候选镜像换版本后的完整门禁需在 Docker 网络恢复后复跑。
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

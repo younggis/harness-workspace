@@ -112,8 +112,8 @@ def get_workspace(wid: uuid.UUID, db: DbSession, identity: IdentityDep):
 
 
 @router.post("/workspaces/{wid}/actions/{action}", response_model=s.OperationOut, status_code=202)
-def workspace_action(wid: uuid.UUID, action: str, request: Request, db: DbSession,
-                     identity: IdentityDep, idempotency_key: IdempotencyDep):
+async def workspace_action(wid: uuid.UUID, action: str, request: Request, db: DbSession,
+                           identity: IdentityDep, idempotency_key: IdempotencyDep):
     if action not in ALLOWED_ACTIONS:
         raise APIError("NOT_FOUND", "Unknown action")
     ws = _get_visible_workspace(db, identity, wid)
@@ -178,6 +178,9 @@ def workspace_action(wid: uuid.UUID, action: str, request: Request, db: DbSessio
                         action=f"workspace.{action}", result="success",
                         request_id=request.state.request_id))
     db.commit()
+    # Stop/disable must close live WS/terminal/SSE within 3 seconds.
+    if action in (m.OP_STOP, m.OP_DISABLE):
+        await request.app.state.connections.close_workspace(wid)
     return s.OperationOut(operation_id=op.id, workspace_id=wid, state=op.state, op=op.op)
 
 

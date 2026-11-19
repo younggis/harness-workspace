@@ -1,5 +1,8 @@
 """Offline worker tests: lease claiming, idempotent processing, reconciliation."""
 import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from conftest import seed_world
 
@@ -14,7 +17,7 @@ class FakeDriver(RuntimeDriver):
 
     def start(self, spec): self.calls.append(("start", spec.generation)); return "cid"
     def stop(self, spec): self.calls.append(("stop", spec.generation))
-    def rebuild(self, spec): self.calls.append(("rebuild", spec.generation)); return "cid2"
+    def rebuild(self, old_spec, new_spec): self.calls.append(("rebuild", new_spec.generation)); return "cid2"
     def ensure(self, spec): self.calls.append(("ensure", spec.generation))
     def attach_gateway(self, spec): self.calls.append(("attach", spec.generation))
     def credential(self, spec): return "fake-model-token"
@@ -62,6 +65,39 @@ def test_disabled_workspace_start_is_a_noop(app):
     wm.process(claimed, FakeDriver())
     with app.state.session_factory() as db:
         assert db.get(m.WorkspaceOperation, oid).state == m.OP_SUCCEEDED
+
+
+def test_lifecycle_constraints(app):
+    """At most one active op per workspace; one active credential per generation."""
+    from sqlalchemy.exc import IntegrityError
+    w = seed_world(app)
+    with app.state.session_factory() as db:
+        db.add(m.WorkspaceOperation(
+            id=uuid.uuid4(), workspace_id=w["wsA2"], actor_id=w["TA"],
+            op=m.OP_START, idempotency_key="k1", request_hash="h1",
+            state=m.OP_QUEUED, target_generation=1,
+        ))
+        db.commit()
+        db.add(m.WorkspaceOperation(
+            id=uuid.uuid4(), workspace_id=w["wsA2"], actor_id=w["TA"],
+            op=m.OP_STOP, idempotency_key="k2", request_hash="h2",
+            state=m.OP_QUEUED, target_generation=1,
+        ))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    with app.state.session_factory() as db:
+        db.add(m.RuntimeCredential(
+            id=uuid.uuid4(), token_hash="a" * 64, workspace_id=w["wsA2"],
+            generation=1, expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        ))
+        db.commit()
+        db.add(m.RuntimeCredential(
+            id=uuid.uuid4(), token_hash="b" * 64, workspace_id=w["wsA2"],
+            generation=1, expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        ))
+        with pytest.raises(IntegrityError):
+            db.commit()
 
 
 def test_reconcile_enqueues_missing_start(app):

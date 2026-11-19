@@ -125,7 +125,7 @@ def me(request: Request, identity: IdentityDep, db: DbSession):
 
 
 @router.post("/auth/logout")
-def logout(request: Request, response: Response, identity: IdentityDep, db: DbSession):
+async def logout(request: Request, response: Response, identity: IdentityDep, db: DbSession):
     now = datetime.now(timezone.utc)
     identity.session.revoked_at = now
     _revoke_session_dependents(db, identity.session)
@@ -134,13 +134,12 @@ def logout(request: Request, response: Response, identity: IdentityDep, db: DbSe
     db.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
-    # Broadcast WS/PTY close is handled by the gateway connection registry on revocation.
-    request.app.state.__dict__.setdefault("revoked_sessions", set()).add(str(identity.session.id))
+    await request.app.state.connections.close_auth_session(identity.session.id)
     return {"status": "ok"}
 
 
 @router.post("/auth/active-tenant", response_model=s.MeOut)
-def set_active_tenant(body: s.ActiveTenantIn, response: Response, identity: IdentityDep, db: DbSession, settings: SettingsDep):
+async def set_active_tenant(body: s.ActiveTenantIn, request: Request, response: Response, identity: IdentityDep, db: DbSession, settings: SettingsDep):
     membership = db.execute(
         select(m.Membership).where(
             m.Membership.tenant_id == body.tenant_id,
@@ -157,6 +156,7 @@ def set_active_tenant(body: s.ActiveTenantIn, response: Response, identity: Iden
     csrf_token = new_token(24)
     identity.session.csrf_hash = token_hash(csrf_token)
     db.commit()
+    await request.app.state.connections.close_auth_session(identity.session.id)
     secure = str(settings.portal_origin).startswith("https://")
     response.set_cookie(CSRF_COOKIE, csrf_token, max_age=SESSION_TTL_SECONDS,
                         httponly=False, samesite="lax", secure=secure, path="/", domain=None)

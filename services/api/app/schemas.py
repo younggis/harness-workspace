@@ -112,6 +112,7 @@ class EntryTicketOut(BaseModel):
 class TemplateOut(BaseModel):
     version: str
     image_digest: str
+    dsh_version: str | None = None
     cpu: int
     memory_bytes: int
     pids_limit: int

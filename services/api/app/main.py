@@ -12,6 +12,7 @@ from harness_common.db import make_engine, make_session_factory, ping
 from harness_common.errors import APIError, api_error_handler, error_response
 
 from . import routers
+from .connections import ConnectionRegistry
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -24,6 +25,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = make_engine(settings.app_database_url(), schema=settings.pg_schema)
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
+    registry = ConnectionRegistry(lambda: app.state.session_factory)
+    app.state.connections = registry
+
+    @app.on_event("startup")
+    async def start_connections():
+        registry.start()
+
+    @app.on_event("shutdown")
+    async def stop_connections():
+        await registry.stop()
 
     app.add_exception_handler(APIError, api_error_handler)
 

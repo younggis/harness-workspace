@@ -1,0 +1,9 @@
+{
+  "captured": true,
+  "exchange_status": 303,
+  "exchange_location": "./",
+  "exchange_cookie_name": "harness_ws",
+  "root_status": 200,
+  "root_content_type": "text/html; charset=utf-8",
+  "root_head_sanitized": "<!doctype html>\n<html lang=\"en\">\n  <head><base href=\"./\"><style>:root{color-scheme:light}body{background-color:#fff;--dsh-boot-bg:#fff}@media(prefers-color-scheme:dark){:root{color-scheme:dark}body{background-color:#151517;--dsh-boot-bg:#151517}}</style><script>globalThis[\"__DSH_CONTACT_CONFIG__\"] ="
+}

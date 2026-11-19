@@ -1,0 +1,7 @@
+{
+  "captured": true,
+  "path": "/plugins/events",
+  "first_lines": [
+    "<capture-error ReadTimeout>"
+  ]
+}

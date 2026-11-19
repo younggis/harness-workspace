@@ -6,6 +6,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from harness_common import models as m
 from harness_common.config import get_settings
 from harness_common.db import make_engine, make_session_factory
@@ -78,7 +80,10 @@ def process(op: m.WorkspaceOperation, driver: RuntimeDriver) -> None:
                 driver.attach_gateway(spec)
                 cred = driver.credential(spec)
                 token = cred
-                exists = db.query(m.RuntimeCredential).filter_by(token_hash=token_hash(token)).first()
+                exists = db.query(m.RuntimeCredential).filter(
+                    m.RuntimeCredential.token_hash == token_hash(token),
+                    m.RuntimeCredential.revoked_at.is_(None),
+                ).first()
                 if not exists:
                     db.add(m.RuntimeCredential(
                         id=uuid.uuid4(), token_hash=token_hash(token), workspace_id=ws.id,
@@ -95,13 +100,25 @@ def process(op: m.WorkspaceOperation, driver: RuntimeDriver) -> None:
                 driver.stop(spec)
                 ws.observed_state = m.OBS_STOPPED
             elif op.op == m.OP_REBUILD:
-                driver.rebuild(spec)
-                cred = driver.credential(spec)
-                exists = db.query(m.RuntimeCredential).filter_by(token_hash=token_hash(cred)).first()
+                from dataclasses import replace
+                new_gen = op.target_generation or (ws.generation + 1)
+                new_spec = replace(spec, generation=new_gen)
+                driver.rebuild(spec, new_spec)
+                for old in db.query(m.RuntimeCredential).filter(
+                    m.RuntimeCredential.workspace_id == ws.id,
+                    m.RuntimeCredential.revoked_at.is_(None),
+                ):
+                    old.revoked_at = datetime.now(timezone.utc)
+                ws.generation = new_gen
+                cred = driver.credential(new_spec)
+                exists = db.query(m.RuntimeCredential).filter(
+                    m.RuntimeCredential.token_hash == token_hash(cred),
+                    m.RuntimeCredential.revoked_at.is_(None),
+                ).first()
                 if not exists:
                     db.add(m.RuntimeCredential(
                         id=uuid.uuid4(), token_hash=token_hash(cred), workspace_id=ws.id,
-                        generation=ws.generation,
+                        generation=new_gen,
                         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
                     ))
                 ws.observed_state = m.OBS_RUNNING
@@ -146,13 +163,29 @@ def reconcile(driver: RuntimeDriver) -> None:
                 desired_op = m.OP_START
             elif (not ws.enabled or ws.desired_state == m.DESIRED_STOPPED) and ws.observed_state == m.OBS_RUNNING:
                 desired_op = m.OP_STOP
+            # Rotate a token that expires within 10 minutes by rebuilding the
+            # space on its next generation; volumes are reused.
+            if desired_op is None and ws.enabled and ws.observed_state == m.OBS_RUNNING:
+                active = db.query(m.RuntimeCredential).filter(
+                    m.RuntimeCredential.workspace_id == ws.id,
+                    m.RuntimeCredential.revoked_at.is_(None),
+                ).first()
+                if active and active.expires_at - now <= timedelta(minutes=10):
+                    desired_op = m.OP_REBUILD
             if desired_op:
-                db.add(m.WorkspaceOperation(
-                    id=uuid.uuid4(), workspace_id=ws.id, actor_id=ws.owner_id,
-                    op=desired_op, idempotency_key=f"reconcile-{desired_op}-{ws.generation}-{int(now.timestamp())}",
-                    request_hash=f"reconcile:{desired_op}:{ws.id}:{ws.generation}",
-                    state=m.OP_QUEUED, target_generation=ws.generation,
-                ))
+                target_gen = ws.generation + 1 if desired_op == m.OP_REBUILD else ws.generation
+                try:
+                    db.add(m.WorkspaceOperation(
+                        id=uuid.uuid4(), workspace_id=ws.id, actor_id=ws.owner_id,
+                        op=desired_op,
+                        idempotency_key=f"reconcile-{desired_op}-{ws.generation}-{int(now.timestamp())}",
+                        request_hash=f"reconcile:{desired_op}:{ws.id}:{ws.generation}",
+                        state=m.OP_QUEUED, target_generation=target_gen,
+                    ))
+                    db.commit()
+                except IntegrityError:
+                    # One active change per workspace: another reconcilers won.
+                    db.rollback()
         db.commit()
 
 

@@ -41,6 +41,7 @@ class Settings:
 
     relay_signing_key: str = field(default_factory=lambda: _env("RELAY_SIGNING_KEY"))
     session_signing_key: str = field(default_factory=lambda: _env("SESSION_SIGNING_KEY"))
+    workspace_token_seed: str = field(default_factory=lambda: _env("HARNESS_WORKSPACE_TOKEN_SEED"))
 
     dsh_version: str = field(default_factory=lambda: _env("DSH_VERSION", "0.2.2-rc.4"))
     edge_port: int = field(default_factory=lambda: int(_env("EDGE_PORT", "8080")))

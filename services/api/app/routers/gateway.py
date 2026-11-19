@@ -6,6 +6,7 @@ Relay verifies a short-lived HMAC bound to method/path/workspace/generation.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,7 @@ from harness_common.security import (
 )
 
 from .. import schemas as s
+from ..connections import LiveConnection
 from ..deps import CSRF_COOKIE, CsrfDep, DbSession, IdentityDep, SettingsDep, WsDbSession
 
 router = APIRouter()
@@ -42,7 +44,7 @@ def _request_host(request: Request) -> str:
     return request.headers.get("host", "").split(":", 1)[0]
 
 
-def _require_workspace_session(request: Request, db, settings) -> tuple[m.Workspace, m.WorkspaceSession]:
+def _require_workspace_session(request: Request, db, settings) -> tuple[m.Workspace, m.WorkspaceSession, m.AuthSession]:
     token = request.cookies.get(WS_COOKIE)
     if not token:
         raise APIError("UNAUTHENTICATED", "Workspace session required")
@@ -62,7 +64,7 @@ def _require_workspace_session(request: Request, db, settings) -> tuple[m.Worksp
     expected_host = _workspace_host(_request_host(request), ws.id, settings)
     if _request_host(request) != expected_host.split(":")[0]:
         raise APIError("FORBIDDEN", "Host binding mismatch")
-    return ws, ws_sess
+    return ws, ws_sess, auth
 
 
 # ---- ticket creation (portal host) -----------------------------------------
@@ -138,7 +140,7 @@ def enter(request: Request, response: Response, db: DbSession, settings: Setting
 
 @router.get("/_platform/me")
 def platform_me(request: Request, db: DbSession, settings: SettingsDep):
-    ws, _ = _require_workspace_session(request, db, settings)
+    ws, _, _ = _require_workspace_session(request, db, settings)
     return {"workspace_id": str(ws.id), "tenant_id": str(ws.tenant_id),
             "generation": ws.generation, "epoch": ws.auth_epoch,
             "csrf_token": new_token(24)}
@@ -146,7 +148,7 @@ def platform_me(request: Request, db: DbSession, settings: SettingsDep):
 
 # ---- generic signed proxy to the workspace runtime via relay ---------------
 async def _proxy(request: Request, db, settings, *, target_path: str | None = None) -> JSONResponse:
-    ws, _ = _require_workspace_session(request, db, settings)
+    ws, ws_sess, auth = _require_workspace_session(request, db, settings)
     path = target_path or request.url.path
     body = await request.body()
     headers = {
@@ -168,11 +170,32 @@ async def _proxy(request: Request, db, settings, *, target_path: str | None = No
         client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0))
         req = client.build_request(request.method, url, content=body, headers=headers)
         upstream = await client.send(req, stream=True)
+        close_event = asyncio.Event()
+        cid = str(uuid.uuid4())
+        await request.app.state.connections.register(LiveConnection(
+            id=cid, kind="sse", workspace_id=ws.id, ws_session_id=ws_sess.id,
+            auth_session_id=auth.id, user_id=auth.user_id, epoch=ws.auth_epoch,
+            generation=ws.generation, close=lambda: close_event.set(),
+        ))
         async def sse():
+            chunks = upstream.aiter_bytes()
             try:
-                async for chunk in upstream.aiter_bytes():
-                    yield chunk
+                while not close_event.is_set():
+                    stream_task = asyncio.create_task(chunks.__anext__())
+                    close_task = asyncio.create_task(close_event.wait())
+                    done, pending = await asyncio.wait(
+                        [stream_task, close_task], return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for t in pending:
+                        t.cancel()
+                    if close_task in done:
+                        break
+                    try:
+                        yield stream_task.result()
+                    except StopAsyncIteration:
+                        break
             finally:
+                await request.app.state.connections.unregister(cid)
                 await upstream.aclose(); await client.aclose()
         return StreamingResponse(sse(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -243,7 +266,18 @@ async def _proxy_ws(websocket: WebSocket, path: str) -> None:
         expected_origin = f"http://{expected_host}:8080" if host_header.endswith(":8080") else f"http://{expected_host}"
         if host != expected_host or origin != expected_origin:
             await websocket.close(code=4403); return
+        auth = db.get(m.AuthSession, sess.auth_session_id)
+        if not auth:
+            await websocket.close(code=4401); return
         await websocket.accept()
+        cid = str(uuid.uuid4())
+        async def close_ws():
+            await websocket.close(code=4403)
+        await websocket.app.state.connections.register(LiveConnection(
+            id=cid, kind="ws", workspace_id=ws.id, ws_session_id=sess.id,
+            auth_session_id=auth.id, user_id=auth.user_id, epoch=ws.auth_epoch,
+            generation=ws.generation, close=close_ws,
+        ))
         sig = sign_relay_request(settings.relay_signing_key, method="GET", path=path,
                                  workspace_id=str(ws.id), generation=ws.generation)
         relay_ws = f"ws://relay:8081{path}?sig={sig}&w={ws.id}&g={ws.generation}"
@@ -278,6 +312,7 @@ async def _proxy_ws(websocket: WebSocket, path: str) -> None:
         except Exception:
             pass
     finally:
+        await websocket.app.state.connections.unregister(cid) if "cid" in locals() else None
         db.close()
 
 

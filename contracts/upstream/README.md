@@ -1,23 +1,25 @@
 # Locked upstream contract samples
 
-Status: **PENDING_M0_E2E** — native dsh Web was not started in this session (no runtime
-image built and the supplied DeepSeek key returned 401), so no real event samples could
-be captured. Do not fabricate event names. `upstream.lock.json` records the facts that
-WERE verified from the repository at the locked tag.
+These files are **real** observations from the running `dsh-v0.2.2-rc.4` stack,
+sanitized (cookies/tickets/tokens/UUIDs/paths replaced). They are the gate for
+upgrading dsh: a candidate image must satisfy `tests/test_upstream_contracts.py`
+before its version is registered as a new template.
 
-When M0 E2E is available, place sanitized samples here:
-
-| File | Content | Source |
+| File | Source | What it pins |
 |---|---|---|
-| `web-http.sanitized.json` | root token→cookie exchange, one 302/303, static asset path | browser/network capture |
-| `web-ws.sanitized.json` | upgrade request/response headers + first event names | WS capture |
-| `tool-call.sanitized.json` | invocation id, chunked args, result correlation | session log |
-| `approval.sanitized.json` | real approval prompt shape | session log |
+| `web-http.sanitized.json` | `scripts/capture_contracts.py` | root token→cookie exchange (303, `./`), root HTML content-type |
+| `events-sse.sanitized.json` | same | `/plugins/events` is a long-lived SSE stream (no early frames captured) |
+| `web-ws.sanitized.json` | same | `/api/remote.mux` accepts text frames after cookie+Host handshake |
+| `session-contract.sanitized.json` | `scripts/capture_session_contract.py` | session projection rows: `modelSelection`, `permissions`, `tokenUsage`, `turnBoundary`, `sessionStats`, `turnOutline`, `userQuestions`, `agentPreset` |
 
-Known from upstream docs at `dsh-v0.2.2-rc.4` (NOT invented RPC names):
+Facts verified from upstream docs at the locked tag (not invented RPC names):
 
 - `dsh --profile web --no-open --public-url <url> --trusted-host <host>`, default port **3080**.
-- Browser-facing external authority must be passed via `--trusted-host`; `Host` header is preserved by the proxy.
-- The mount root alone exchanges the launch token for a host-only signed cookie; redirects 302/303.
-- Config lives in the profile's `cordis.patch.yml`; protocol id for OpenAI Chat Completions is `openai-completions`.
-- Model key is stored in `$DSH_HOME/.credentials.yaml`; settings keep only a credential reference.
+- `--patch` is a launcher flag (before `--profile`), not an app flag.
+- The mount root exchanges the launch token for a host-only signed cookie (303).
+- Native WS `/api/remote.mux` requires **text** frames and the injected cookie.
+- `/plugins/events` is SSE; it must not be buffered by the gateway.
+- Model route config lives in `llm-pi-ai.providers` of the profile patch; protocol `openai-completions`.
+
+Re-capture after an upstream upgrade, then run `./scripts/upgrade-check.ps1 -Version <new>`.
+If a contract assertion fails, the adapter must be updated before the new template is published.

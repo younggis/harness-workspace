@@ -7,6 +7,10 @@ generation and are never taken over when labels conflict.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import os
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -30,7 +34,7 @@ class RuntimeDriver:
     def ensure(self, spec: SpaceSpec) -> None: ...
     def start(self, spec: SpaceSpec) -> str: ...       # returns container id
     def stop(self, spec: SpaceSpec) -> None: ...
-    def rebuild(self, spec: SpaceSpec) -> str: ...
+    def rebuild(self, old_spec: SpaceSpec, new_spec: SpaceSpec) -> str: ...
     def inspect(self, spec: SpaceSpec) -> dict: ...
     def attach_gateway(self, spec: SpaceSpec) -> None: ...
     def credential(self, spec: SpaceSpec) -> str: ...
@@ -44,10 +48,11 @@ class DockerRuntimeDriver(RuntimeDriver):
         self._credentials: dict = {}
 
     def _labels(self, spec: SpaceSpec) -> dict:
+        # Volumes and networks are reused across generations, so labels must
+        # NOT include generation (otherwise rebuild hits LABEL_CONFLICT).
         return {
             "harness.installation": self.installation_id,
             "harness.workspace": spec.workspace_id,
-            "harness.generation": str(spec.generation),
             "harness.resource": "runtime",
         }
 
@@ -116,11 +121,10 @@ class DockerRuntimeDriver(RuntimeDriver):
         )
 
     def start(self, spec: SpaceSpec) -> str:
+        # Clean any stale containers/networks from earlier generations first.
+        self.stop(spec)
         self.ensure(spec)
         proj, home, net, name = self._names(spec)
-        existing = next((c for c in self.client.containers.list(all=True) if c.name == name), None)
-        if existing:
-            return existing.id
         cfg = self._container_config(spec, proj, home, net, model_token=self.credential(spec))
         container = self.client.containers.run(**cfg)
         # Give the runtime a globally unique, generation-scoped alias on its space
@@ -130,18 +134,31 @@ class DockerRuntimeDriver(RuntimeDriver):
         return container.id
 
     def stop(self, spec: SpaceSpec) -> None:
-        name = self._names(spec)[3]
-        c = next((x for x in self.client.containers.list(all=True) if x.name == name), None)
-        if c:
-            c.remove(force=True)
-        net_name = self._names(spec)[2]
-        n = next((x for x in self.client.networks.list() if x.name == net_name), None)
-        if n:
-            n.remove()
+        # Remove every container of this logical workspace (any stale generation).
+        for c in self.client.containers.list(
+            all=True, filters={"label": f"harness.workspace={spec.workspace_id}"},
+        ):
+            try:
+                c.remove(force=True)
+            except Exception:
+                pass
+        # Remove every space network by label, after detaching gateway services.
+        for n in self.client.networks.list(
+            filters={"label": f"harness.workspace={spec.workspace_id}"},
+        ):
+            for endpoint in list((n.attrs.get("Containers") or {}).keys()):
+                try:
+                    n.disconnect(endpoint, force=True)
+                except Exception:
+                    pass
+            try:
+                n.remove()
+            except Exception:
+                pass
 
-    def rebuild(self, spec: SpaceSpec) -> str:
-        self.stop(spec)
-        return self.start(spec)
+    def rebuild(self, old_spec: SpaceSpec, new_spec: SpaceSpec) -> str:
+        self.stop(old_spec)
+        return self.start(new_spec)
 
     def inspect(self, spec: SpaceSpec) -> dict:
         name = self._names(spec)[3]
@@ -171,7 +188,23 @@ class DockerRuntimeDriver(RuntimeDriver):
                 pass  # service may not be up yet; reconcile retries
 
     def credential(self, spec: SpaceSpec) -> str:
+        """Stable per (workspace, generation) token.
+
+        Derived from a high-entropy seed so a worker restart never produces a
+        token different from the one already injected into a live container.
+        Rotating generation changes the token; old values are revoked explicitly.
+        """
+        seed = os.environ.get("HARNESS_WORKSPACE_TOKEN_SEED", "")
         key = (spec.workspace_id, spec.generation)
+        if seed:
+            mac = hmac.new(
+                seed.encode("utf-8"),
+                f"{spec.workspace_id}:{spec.generation}".encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+            token = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
+            self._credentials[key] = token
+            return token
         if key not in self._credentials:
             self._credentials[key] = secrets.token_urlsafe(32)
         return self._credentials[key]
