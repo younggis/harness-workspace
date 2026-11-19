@@ -98,7 +98,9 @@ def allocate_workspace(tid: uuid.UUID, body: s.CreateWorkspaceIn, request: Reque
 @router.get("/workspaces", response_model=list[s.WorkspaceOut])
 def list_workspaces(db: DbSession, identity: IdentityDep):
     if identity.is_platform_admin:
-        rows = db.execute(select(m.Workspace)).scalars()
+        # The workbench shows only spaces the account owns. Admin-wide views
+        # live under /admin; management privilege never grants file/PTY access.
+        rows = db.execute(select(m.Workspace).where(m.Workspace.owner_id == identity.user.id)).scalars()
     elif identity.role == m.MEMBER_ADMIN and identity.tenant_id:
         rows = db.execute(select(m.Workspace).where(m.Workspace.tenant_id == identity.tenant_id)).scalars()
     else:
