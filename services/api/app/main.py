@@ -17,6 +17,17 @@ from .connections import ConnectionRegistry
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+def _portal_origins(settings: Settings) -> set[str]:
+    origins = {settings.portal_origin}
+    if settings.app_env == "development":
+        # Local dev: the portal is also reachable by loopback IP (no DNS/hosts).
+        origins.update({
+            f"http://127.0.0.1:{settings.edge_port}",
+            f"http://localhost:{settings.edge_port}",
+        })
+    return origins
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(title="Harness Control API", version="1.0.0", docs_url="/docs", redoc_url=None)
@@ -51,14 +62,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             host = request.headers.get("host", "")
             if request.url.path == "/_platform/enter":
                 # The single intentional portal -> workspace cross-host form POST.
-                expected = settings.portal_origin
+                allowed = _portal_origins(settings)
             elif host.startswith("w-"):
                 # Workspace host: portal APIs and native dsh /api/... all share
                 # the browser's workspace-host Origin.
-                expected = f"http://{host}"
+                allowed = {f"http://{host}"}
             else:
-                expected = settings.portal_origin
-            if not origin or origin != expected:
+                allowed = _portal_origins(settings)
+            if not origin or origin not in allowed:
                 return error_response(
                     "FORBIDDEN", "Origin check failed", status=403, request_id=rid,
                 )
