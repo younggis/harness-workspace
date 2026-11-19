@@ -42,6 +42,21 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\upgrade-check.ps1 -Version 0.2.2-rc.4
 ```
 
+## 企业身份（OIDC / MFA）
+在 `.env.local` 填入 OIDC 配置后，登录页自动显示“使用企业账号登录”：
+```
+OIDC_ISSUER=https://idp.example.com/realms/harness
+OIDC_CLIENT_ID=harness
+OIDC_CLIENT_SECRET=...
+OIDC_REDIRECT_URI=http://portal.127.0.0.1.nip.io:8080/api/auth/oidc/callback
+OIDC_AUTO_PROVISION=false
+```
+回调 URI 必须在 IdP 注册。支持 Authorization Code + PKCE、JWKS 验签、nonce 校验；
+`OIDC_AUTO_PROVISION=true` 时按 email JIT 开通账号。
+TOTP MFA：用户登录后调用 `POST /api/auth/mfa/enroll` 获取密钥，用验证器确认
+`POST /api/auth/mfa/verify`；启用后密码正确仅返回 `mfa_required`，再提交
+`POST /api/auth/mfa/complete` 才建立会话。真实 IdP 联调待现场验证。
+
 ## 产品化后续
 连接注册表与撤权、生命周期约束、契约样本与升级门禁已落地（见 `docs/verification.md` 1.12–1.14）；
 仍待推进：剩余 P0 隔离/停用 E2E、备份恢复演练、容量基线、远程/HTTPS 部署、K8s RuntimeDriver。
