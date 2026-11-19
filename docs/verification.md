@@ -366,6 +366,8 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 离线测试 `tests/test_sso_mfa.py` 3 项通过（OIDC 默认关闭、TOTP 注册→验证→登录→完成、
   错误码拒绝）；总计 **38 passed / 6 skipped**
 - 修复：网关 catch-all 路由先于新路由注册导致 404、JSONResponse 丢弃注入 Response 的 Cookie
+- 真实栈复验（API 镜像重建后）：`GET /api/auth/oidc/config` → 200 `{"enabled":false}`；
+  登录 200；`POST /api/auth/mfa/enroll` → 200（secret 返回）。离线与真实栈一致
 - **待验证**：真实企业 IdP 的 discovery/JWKS/JIT 全流程（当前无 IdP 配置），
   以及生产 MFA 强制策略；`docs/TOB_READINESS.md` 中对应 P0 项仍需现场验收
 
