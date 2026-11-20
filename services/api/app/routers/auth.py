@@ -40,6 +40,22 @@ def _user_tenants(db, user_id) -> list[m.Tenant]:
     ).scalars())
 
 
+def _tenant_role(db, user_id, tenant_id) -> str:
+    ms = db.execute(
+        select(m.Membership).where(
+            m.Membership.user_id == user_id,
+            m.Membership.tenant_id == tenant_id,
+            m.Membership.status == m.MEMBER_ACTIVE,
+        )
+    ).scalar_one_or_none()
+    return ms.role if ms else ""
+
+
+def _tenant_briefs(db, user_id, tenants) -> list[s.TenantBrief]:
+    return [s.TenantBrief(id=t.id, slug=t.slug, name=t.name,
+                          role=_tenant_role(db, user_id, t.id)) for t in tenants]
+
+
 def _set_session_cookies(response: Response, session_token: str, csrf_token: str, *, secure: bool) -> None:
     response.set_cookie(
         SESSION_COOKIE, session_token, max_age=SESSION_TTL_SECONDS,
@@ -117,7 +133,7 @@ def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, 
     return s.LoginOut(
         user=s.UserBrief(id=user.id, login_norm=user.login_norm, display_name=user.display_name,
                          is_platform_admin=user.is_platform_admin),
-        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        tenants=_tenant_briefs(db, user.id, tenants),
         active_tenant_id=active,
         csrf_token=csrf_token,
     )
@@ -130,7 +146,7 @@ def me(request: Request, identity: IdentityDep, db: DbSession):
         user=s.UserBrief(id=identity.user.id, login_norm=identity.user.login_norm,
                          display_name=identity.user.display_name,
                          is_platform_admin=identity.user.is_platform_admin),
-        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        tenants=_tenant_briefs(db, identity.user.id, tenants),
         active_tenant_id=identity.tenant_id,
         csrf_token=request.cookies.get(CSRF_COOKIE, ""),
     )
@@ -177,7 +193,7 @@ async def set_active_tenant(body: s.ActiveTenantIn, request: Request, response: 
         user=s.UserBrief(id=identity.user.id, login_norm=identity.user.login_norm,
                          display_name=identity.user.display_name,
                          is_platform_admin=identity.user.is_platform_admin),
-        tenants=[s.TenantBrief(id=t.id, slug=t.slug, name=t.name) for t in tenants],
+        tenants=_tenant_briefs(db, identity.user.id, tenants),
         active_tenant_id=body.tenant_id,
         csrf_token=csrf_token,
     )

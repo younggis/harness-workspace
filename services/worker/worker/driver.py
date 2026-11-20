@@ -98,6 +98,10 @@ class DockerRuntimeDriver(RuntimeDriver):
             image=spec.image,
             labels=labels,
             detach=True,
+            # The adapter reaches dsh via the public authority (so Host and cookie
+            # authority match). Pin that name to loopback inside the runtime, since
+            # the isolated network has no external DNS.
+            extra_hosts=[f"{spec.workspace_host.split(':', 1)[0]}:127.0.0.1"],
             # Born ONLY on the internal space network. Never the default bridge:
             # the bridge would give the runtime host and internet access.
             network=net,

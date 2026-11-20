@@ -60,7 +60,10 @@ import { api } from './api'
 
 const router = useRouter(), route = useRoute()
 const me = ref<any>(null)
-const isTenantAdmin = computed(() => !!me.value?.tenants?.length)
+const isTenantAdmin = computed(() => {
+  const t = (me.value?.tenants || []).find((x: any) => x.id === me.value?.active_tenant_id)
+  return t?.role === 'tenant_admin' || t?.role === 'admin'
+})
 
 async function loadMe() { try { me.value = await api('/api/me') } catch { me.value = null } }
 async function onCommand(cmd: string) {

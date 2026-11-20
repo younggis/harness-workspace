@@ -49,6 +49,27 @@ def test_claim_and_process_start(app):
     assert ("start", 1) in drv.calls
 
 
+def test_runtime_config_pins_public_host_to_loopback():
+    """Runtime must resolve its public authority internally (no external DNS),
+    and must be born only on the internal space network (never default bridge)."""
+    from worker.driver import DockerRuntimeDriver
+    drv = object.__new__(DockerRuntimeDriver)
+    drv.installation_id = "harness-local-dev"
+    class _Api: _version = "1.43"
+    class _Client: api = _Api()
+    drv.client = _Client()
+    spec = SpaceSpec(
+        workspace_id="w1", tenant_id="t1", generation=2,
+        installation_id="harness-local-dev", image="img",
+        cpu=1, memory_bytes=1024, pids_limit=64,
+        workspace_host="w-abc.127.0.0.1.nip.io:8080",
+    )
+    cfg = drv._container_config(spec, "proj", "home", "net")
+    assert cfg["extra_hosts"] == ["w-abc.127.0.0.1.nip.io:127.0.0.1"]
+    assert cfg["network"] == "net"
+    assert "bridge" not in cfg.get("network", "")
+
+
 def test_disabled_workspace_start_is_a_noop(app):
     w = seed_world(app)
     wm.factory = app.state.session_factory

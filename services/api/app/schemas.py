@@ -16,6 +16,7 @@ class TenantBrief(BaseModel):
     id: uuid.UUID
     slug: str
     name: str
+    role: str = ""  # membership role of the current user in this tenant
 
 
 class UserBrief(BaseModel):

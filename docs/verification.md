@@ -456,6 +456,24 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - `tests/test_tokens.py` 3 项通过：创建/列举/撤销、未知 scope 拒绝、SCIM 接受作用域 token
 - 全量离线 **48 passed / 7 skipped**
 
+### 1.28 全流程验收复跑（真实 Docker / PostgreSQL / 浏览器 / DeepSeek）
+- **自动化套件（带集成环境）**：`53 passed / 2 skipped`；三空间隔离探针全部 `ISOLATION_PASS`
+- **真实栈健康**：health live 200、ready ok；迁移版本 `0006_api_tokens`；6 用户 / 2 租户 / 3 空间
+- **浏览器 E2E（真实 Chrome，经 in-app browser）**：
+  1. 登录：错误密码显示 `Invalid credentials`；正确管理员登录进入工作台
+  2. 管理页：租户/用户列表加载；点选租户显示成员（角色/状态）与「成员 / 工作空间 / 用量与审计」页签；审计日志显示真实事件链
+  3. **发现并修复真实故障**：进入工作空间根路径返回 `Internal Server Error`。根因：隔离网络无外部 DNS，运行时适配器按公网 authority 访问 dsh 时 `[Errno -3] Temporary failure in name resolution`。
+     修复 `services/worker/worker/driver.py`：为运行时容器增加 `extra_hosts=[<workspace_host>:127.0.0.1]`。重建 worker 后由 reconcile 自动重建运行时（新容器 01:04:12Z 创建，`docker inspect` 确认 ExtraHosts 已注入、仅挂内部专网），工作空间正常打开。
+  4. **真实 DeepSeek 对话**：发送指令 → `已完成，用时 2秒` / `OK` / `9.6K tok·缓存命中 91%`（真实模型响应，非 mock）
+  5. 文件：`PUT→GET→LIST→DELETE` 全链路通过（上传 200、下载内容一致、列表可见、删除 204）
+  6. 终端：WebSocket PTY `echo TERMOK999` → 回显 `TERMOK999`，确认交互终端可用
+  7. RBAC：普通成员 a1 访问 `/api/admin/audit` → **403**；管理员 → 200
+  8. **发现并修复 UI 缺陷**：原 `isTenantAdmin = !!tenants.length` 导致任何成员都看到「管理」菜单。
+     `/api/me` 的 `TenantBrief` 增加 `role` 字段，`isTenantAdmin` 改为按当前租户角色判断。复验：a1 在 tenant-a(member) 仅见「工作台」；切换至 test-tenant(tenant_admin) 后出现「管理」。
+  9. 租户切换：弹窗选择 Test Tenant → `active_tenant_id` 切换、菜单随角色刷新；退出登录 → 跳回 `/login` 并提示「已退出」
+- 新增回归测试：`test_runtime_config_pins_public_host_to_loopback`（ExtraHosts 与内部网络）、`test_me_role.py` 2 项（role 字段）
+- 修复后全量复跑（离线）**51 passed / 7 skipped**，（带集成环境）**56 passed / 2 skipped**；前端与 API 镜像已重建并上线
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
