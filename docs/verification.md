@@ -562,6 +562,13 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - `tests/test_p3_hardening.py` 5 项通过；全量 **99 passed / 11 skipped**（离线）、**104 passed / 6 skipped**（集成）；前端 9 项
 - 真实验证：edge `/metrics` 返回 `harness_api_http_requests_total`；CSV 导出 200 + `text/csv` + 正确表头；管理页出现「导出 CSV」按钮；`compose.monitoring.yaml` 配置校验通过；`scripts/ci.ps1` 输出 `CI_PASS`；密钥扫描 `SECRET_SCAN_CLEAN`
 
+### 1.38 P5 本地可验证部分
+- **OIDC 端到端（本地 mock IdP）**：`scripts/mock_idp.py` 实现 discovery/authorize/token/JWKS（RS256），`scripts/oidc_e2e_server.py` 用隔离 SQLite 起临时 API，`scripts/oidc-e2e.ps1` 一键编排。真实浏览器跳转链（start → IdP authorize → callback）后 `/api/me` 返回 JIT 用户 `oidc.e2e@example.com`；PKCE S256、JWKS 验签、nonce 校验均通过；headless 复跑 `OIDC_E2E_PASS`
+- **HTTPS 端到端**：`scripts/https-e2e.ps1` 用生产 nginx 配置 + 现有自签名证书起临时容器；实测 HTTP 301→HTTPS、HSTS `max-age=31536000`、安全头齐全、TLS 1.2/1.3 均 200 → `HTTPS_E2E_PASS`
+- **T17 完整压测**：`scripts/load_test.py` 对 4 个真实空间跑冷/热启动 ×5 与 1/2/4 并发；冷启动 avg **1.93s**(20 样本)、热启动 avg **1.97s**(20 样本)；并发 1/2/4 分别 **1.50s / 2.98s / 4.58s**；压测后 4 空间全部恢复 running、4 运行时在跑、health 200
+- **文档交付**：`docs/PG_HA_RUNBOOK.md`（不碰现有 PG 的隔离 HA/归档变更手册）、`docs/SECURITY_ASSESSMENT.md`（SOC2 控制映射 + 渗透 scope）、`docs/P5_STATUS.md`（5 项状态汇总）
+- 仍需外部：企业 IdP 真实配置、公共 CA 证书与域名、现有 Windows PG 变更授权、第三方渗透测试/SOC2/DPA
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

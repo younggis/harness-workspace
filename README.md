@@ -14,6 +14,7 @@
 - 操作：`docs/OPERATIONS.md`（日常流程、Runbook、巡检、故障排查、应急响应）
 - 验收：`docs/verification.md`（真实执行记录、极端条件与 P0–P3 加固 1.28–1.37）
 - 可观测：`infra/monitoring/alerts.yml`、`compose.monitoring.yaml`；CI：`.github/workflows/ci.yml`
+- P5：状态汇总 `docs/P5_STATUS.md`；OIDC/HTTPS 本地端到端 `scripts/oidc-e2e.ps1` / `https-e2e.ps1`；PG HA 变更 runbook `docs/PG_HA_RUNBOOK.md`（需授权）；安全自评 `docs/SECURITY_ASSESSMENT.md`；T17 压测 `scripts/load_test.py`
 
 ## 环境
 Windows 11 · Docker Desktop（Linux 容器）· FastAPI · Vue 3 · 本机 PostgreSQL(postgis) · DeepSeek。
