@@ -17,9 +17,10 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from harness_common.config import get_settings
+from harness_common.metrics import Metrics
 from harness_common.db import make_engine, make_session_factory
 from harness_common.errors import APIError, api_error_handler, error_response
 from harness_common.security import token_hash
@@ -29,6 +30,7 @@ app = FastAPI(title="Harness Model Proxy")
 app.add_exception_handler(APIError, api_error_handler)
 engine = make_engine(settings.llm_database_url(), schema=settings.pg_schema)
 factory = make_session_factory(engine)
+metrics = Metrics("harness_llm_")
 ALLOWED_MODELS = {settings.deepseek_model}
 UPSTREAM = settings.deepseek_base_url.rstrip("/")
 RESERVE_UNITS = 8192  # conservative input+output upper bound for hard budget
@@ -84,6 +86,7 @@ def models(request: Request):
 
 
 def _reserve(request_id: str, tenant_id: str, ws_id: str, model: str) -> None:
+    metrics.inc("model_requests_total", {"model": model, "state": "started"})
     from sqlalchemy import text
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with factory() as db:
@@ -198,6 +201,9 @@ async def chat_completions(request: Request):
 
 
 def _settle(request_id: str, usage: dict | None, *, latency_ms: int) -> None:
+    metrics.inc("model_requests_total", {"state": "succeeded"})
+    metrics.inc("model_tokens_total", {"kind": "input"}, value=(usage or {}).get("prompt_tokens") or 0)
+    metrics.inc("model_tokens_total", {"kind": "output"}, value=(usage or {}).get("completion_tokens") or 0)
     from sqlalchemy import text
     source = "provider" if usage else "unknown"
     inp = (usage or {}).get("prompt_tokens")
@@ -219,6 +225,7 @@ def _settle(request_id: str, usage: dict | None, *, latency_ms: int) -> None:
 
 
 def _settle_unknown(request_id: str, latency_ms: int) -> None:
+    metrics.inc("model_requests_total", {"state": "unknown_usage"})
     from sqlalchemy import text
     with factory() as db:
         db.execute(text(
@@ -226,6 +233,11 @@ def _settle_unknown(request_id: str, latency_ms: int) -> None:
             "finished_at=now() WHERE request_id=:r AND state='running'"
         ), {"l": latency_ms, "r": request_id})
         db.commit()
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint():
+    return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/health/live")

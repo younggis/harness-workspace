@@ -12,7 +12,8 @@
 - 租户资源：`docs/TENANT_RESOURCES.md`（CPU/内存/PIDS 配额方案与实施；不含 GPU）
 - 部署：`docs/DEPLOYMENT.md`（开发/生产、secrets、TLS、网络、升级回滚）
 - 操作：`docs/OPERATIONS.md`（日常流程、Runbook、巡检、故障排查、应急响应）
-- 验收：`docs/verification.md`（真实执行记录与极端条件测试 1.28/1.29）
+- 验收：`docs/verification.md`（真实执行记录、极端条件与 P0–P3 加固 1.28–1.37）
+- 可观测：`infra/monitoring/alerts.yml`、`compose.monitoring.yaml`；CI：`.github/workflows/ci.yml`
 
 ## 环境
 Windows 11 · Docker Desktop（Linux 容器）· FastAPI · Vue 3 · 本机 PostgreSQL(postgis) · DeepSeek。
@@ -42,8 +43,9 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 ## 测试
 
 ```powershell
-.\scripts\test.ps1 -Suite offline       # 94 passed / 11 skipped，无需密钥/Docker
-.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（99 passed / 6 skipped）
+.\scripts\test.ps1 -Suite offline       # 99 passed / 11 skipped，无需密钥/Docker
+.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（104 passed / 6 skipped）
+.\scripts\ci.ps1                        # 一键 CI：密钥扫描+测试+构建+配置校验
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
 Push-Location apps/portal; pnpm run test; Pop-Location   # 前端测试（9 项：路由守卫/newId/登录态缓存）

@@ -194,6 +194,7 @@ async def workspace_action(wid: uuid.UUID, action: str, request: Request, db: Db
         # Another operation is still active on this space (uq_op_active_ws).
         db.rollback()
         raise APIError("CONFLICT", "Another operation is in progress for this workspace")
+    request.app.state.metrics.inc("workspace_actions_total", {"action": action})
     # Stop/disable must close live WS/terminal/SSE within 3 seconds.
     if action in (m.OP_STOP, m.OP_DISABLE):
         await request.app.state.connections.close_workspace(wid)

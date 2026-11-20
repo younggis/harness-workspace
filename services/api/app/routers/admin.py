@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import func, select
 
 from harness_common import models as m
@@ -291,6 +292,33 @@ async def revoke_session(sid: uuid.UUID, request: Request,
     db.commit()
     await request.app.state.connections.close_auth_session(sid)
     return {"id": str(sid), "revoked": True}
+
+
+@router.get("/admin/audit/export")
+def export_audit(db: DbSession, _admin: PlatformAdminDep,
+                 _perm=require_permission(Perm.AUDIT_READ),
+                 tenant_id: uuid.UUID | None = None, action: str | None = None,
+                 limit: int = Query(5000, ge=1, le=50000)):
+    import csv
+    import io
+    q = select(m.AuditEvent)
+    if tenant_id:
+        q = q.where(m.AuditEvent.tenant_id == tenant_id)
+    if action:
+        q = q.where(m.AuditEvent.action == action)
+    rows = db.execute(q.order_by(m.AuditEvent.occurred_at.desc()).limit(limit)).scalars()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["occurred_at", "actor_id", "tenant_id", "workspace_id",
+                "action", "target", "result", "request_id"])
+    for e in rows:
+        w.writerow([e.occurred_at.isoformat(), e.actor_id, e.tenant_id, e.workspace_id,
+                    e.action, e.target, e.result, e.request_id])
+    db.add(m.AuditEvent(actor_id=_admin.user.id, action="audit.export",
+                        target=str(limit), result="success"))
+    db.commit()
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": 'attachment; filename="harness-audit.csv"'})
 
 
 @router.get("/admin/audit")

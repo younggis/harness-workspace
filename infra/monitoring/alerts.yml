@@ -1,0 +1,39 @@
+groups:
+  - name: harness
+    rules:
+      - alert: HarnessAPIDown
+        expr: up{job="harness-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Harness API instance down"
+
+      - alert: HarnessHighErrorRate
+        expr: |
+          sum(rate(harness_api_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(harness_api_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "API 5xx ratio above 5%"
+
+      - alert: HarnessLoginBruteForce
+        expr: sum(increase(harness_api_login_total{result="failure"}[5m])) > 20
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 20 failed logins in 5 minutes"
+
+      - alert: HarnessQueueBacklog
+        expr: harness_api_workspace_actions_total > 0 and rate(harness_api_workspace_actions_total[5m]) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Workspace actions queued but not completing (check worker)"
+
+      - alert: HarnessModelUpstreamErrors
+        expr: sum(rate(harness_llm_model_requests_total{state!="succeeded"}[10m])) > 0.1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Model upstream requests failing"

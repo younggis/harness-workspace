@@ -84,6 +84,9 @@ docker compose --env-file .env.local -p harness-prod -f compose.prod.yaml up -d
 - **T17 完整压测待专用环境**：冷/热启动 ×5、1/2/4 空间并发。
 - **Docker 地址池**：空间很多时默认池会耗尽（`all predefined address pools have been fully subnetted`）。把 `infra/docker/daemon.json` 的 `default-address-pools` 合并进 Docker Desktop → Settings → Docker Engine 并重启；注意已有网络不会迁移，先备份。worker 每 5 分钟自动 GC 孤立网络。
 - **历史数据保留**：`AUDIT_RETENTION_DAYS` / `MODEL_REQUEST_RETENTION_DAYS`（默认 90 天）；定期运行 `.\scripts\prune-history.ps1 -Apply`（先 dry-run 确认数量）。
+- **监控**：`docker compose -p harness-monitoring -f compose.monitoring.yaml up -d` 启动 Prometheus(9090)/Grafana(3001)，抓取 API `/metrics` 与 LLM `:8090/metrics`；告警规则在 `infra/monitoring/alerts.yml`。
+- **CI**：本地 `.\scripts\ci.ps1`（密钥扫描+测试+构建+配置校验）；GitHub Actions 见 `.github/workflows/ci.yml`。
+- **定时备份**：`.\scripts\schedule-backup.ps1 -BackupRoot <共享目录>` 默认 dry-run；确认后加 `-Install`（创建 Windows 计划任务，需管理员权限/操作员授权）。
 
 ## 8. 备份/恢复/PITR
 

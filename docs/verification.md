@@ -553,6 +553,15 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 前端测试 **9 passed**（新增 auth 缓存 3 项）；后端 **94 passed / 11 skipped**（离线）、**99 passed / 6 skipped**（集成）
 - 真实验证：拆包后 edge 提供新入口 `index-CRuulIlK.js`；prune dry-run 报告 0 行到期；重建 llm/api/worker/edge 后登录→启动→进入空间→真实 DeepSeek 对话成功（`P2OK`，2 秒，9.6K tok）；health 200，llm 日志无错误
 
+### 1.37 P3 可观测与 CI
+1. **指标**：无新依赖的 Prometheus 文本导出 `common/harness_common/metrics.py`；API `/metrics`（HTTP 请求数/延迟、登录结果、空间动作、活跃连接）与 LLM `/metrics`（模型请求/token）；edge dev/prod 均放行 `/metrics`
+2. **告警规则**：`infra/monitoring/alerts.yml`（API down、5xx 率、登录爆破、队列积压、模型上游错误）+ `compose.monitoring.yaml`（Prometheus + Grafana，接入 `harness-local-dev_backend`）
+3. **审计导出**：`GET /api/admin/audit/export`（CSV，最多 50000 行，需 AUDIT_READ）+ 管理页「导出 CSV」按钮
+4. **定时备份**：`scripts/schedule-backup.ps1`（默认 dry-run，`-Install` 才创建 Windows 计划任务；需要操作员授权）
+5. **CI**：`scripts/ci.ps1`（密钥扫描→后端测试→前端测试/构建→compose 校验，本地一键 `CI_PASS`）；`.github/workflows/ci.yml`（backend/frontend/secrets 三 job）；`scripts/secret-scan.ps1`（sk- 密钥、AWS key、PEM、tracked .env.local）
+- `tests/test_p3_hardening.py` 5 项通过；全量 **99 passed / 11 skipped**（离线）、**104 passed / 6 skipped**（集成）；前端 9 项
+- 真实验证：edge `/metrics` 返回 `harness_api_http_requests_total`；CSV 导出 200 + `text/csv` + 正确表头；管理页出现「导出 CSV」按钮；`compose.monitoring.yaml` 配置校验通过；`scripts/ci.ps1` 输出 `CI_PASS`；密钥扫描 `SECRET_SCAN_CLEAN`
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

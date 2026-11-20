@@ -86,13 +86,16 @@ def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, 
     login_norm = body.login.strip().lower()
     limiter = request.app.state.login_limiter
     if not limiter.allowed(login_norm):
+        request.app.state.metrics.inc("login_total", {"result": "rate_limited"})
         raise APIError("RATE_LIMITED", "Too many failed logins", retryable=True)
 
     user = db.execute(select(m.User).where(m.User.login_norm == login_norm)).scalar_one_or_none()
     if not user or user.status != m.USER_ACTIVE or not verify_password(user.password_hash, body.password):
         limiter.record_failure(login_norm)
+        request.app.state.metrics.inc("login_total", {"result": "failure"})
         raise APIError("UNAUTHENTICATED", "Invalid credentials")  # generic message
     limiter.clear(login_norm)
+    request.app.state.metrics.inc("login_total", {"result": "success"})
 
     # MFA: password alone is not a session when the user enrolled TOTP.
     if user.mfa_enabled and user.mfa_secret:

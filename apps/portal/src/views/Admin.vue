@@ -125,7 +125,7 @@
                   <el-table-column prop="input_tokens" label="输入 token" />
                   <el-table-column prop="output_tokens" label="输出 token" />
                 </el-table>
-                <h4>审计事件</h4>
+                <div class="audit-head"><h4>审计事件</h4><el-button size="small" @click="exportAudit">导出 CSV</el-button></div>
                 <el-table :data="audit" size="small">
                   <el-table-column prop="occurred_at" label="时间" />
                   <el-table-column prop="action" label="动作" />
@@ -189,7 +189,7 @@
 <script setup lang="ts">
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, newId } from '../api'
+import { api, newId, csrf } from '../api'
 
 const tenants = ref<any[]>([]), users = ref<any[]>([]), members = ref<any[]>([])
 const workspaces = ref<any[]>([]), templates = ref<any[]>([])
@@ -233,6 +233,16 @@ async function loadMembers() { if (!selected.value) return; loading.members = tr
 async function loadWorkspaces() { if (!selected.value) return; loading.workspaces = true; try { workspaces.value = (await api(`/api/admin/tenants/${selected.value.id}/workspaces`)).items } finally { loading.workspaces = false } }
 async function loadUsage() { if (!selected.value) return; usage.value = await api(`/api/admin/tenants/${selected.value.id}/usage`) }
 async function loadAudit() { if (!selected.value) return; audit.value = (await api(`/api/admin/tenants/${selected.value.id}/audit`)).items }
+async function exportAudit() {
+  await run(async () => {
+    const res = await fetch(`/api/admin/audit/export?limit=5000`, { credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } })
+    if (!res.ok) throw new Error((await res.json()).error?.message || '导出失败')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'harness-audit.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }, '审计已导出')
+}
 
 async function createTenant() {
   await run(async () => {
@@ -299,5 +309,6 @@ async function allocateWs() {
 onMounted(async () => { await Promise.all([loadTenants(), loadUsers(), loadTemplates()]) })
 </script>
 <style scoped>
+.audit-head { display:flex; align-items:center; justify-content:space-between; }
 .hint { font-size: 12px; color: #909399; margin-top: 4px; }
 </style>

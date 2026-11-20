@@ -6,9 +6,10 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from harness_common.config import Settings, get_settings
+from harness_common.metrics import Metrics
 from harness_common.db import make_engine, make_session_factory, ping
 from harness_common.errors import APIError, api_error_handler, error_response
 
@@ -18,6 +19,16 @@ from .connections import ConnectionRegistry
 from .ratelimit import LoginRateLimiter
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _metric_path(path: str) -> str:
+    """Collapse high-cardinality path segments (UUIDs) before labelling."""
+    import re
+    path = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", ":id", path)
+    path = re.sub(r"w-:id", "w-:id", path)
+    if path.startswith("/_platform/"):
+        return "/_platform/:path"
+    return path
 
 
 def _portal_origins(settings: Settings) -> set[str]:
@@ -54,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.connections = registry
     app.state.login_limiter = LoginRateLimiter(redis_url=settings.redis_url)
+    app.state.metrics = Metrics("harness_api_")
 
     app.add_exception_handler(APIError, api_error_handler)
 
@@ -83,10 +95,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
 
         response = await call_next(request)
+        mpath = _metric_path(request.url.path)
+        request.app.state.metrics.inc("http_requests_total", {
+            "method": request.method, "path": mpath, "status": response.status_code,
+        })
+        request.app.state.metrics.set("http_request_duration_seconds",
+                                      round(time.monotonic() - request.state.started, 4),
+                                      {"method": request.method, "path": mpath})
         response.headers["X-Request-ID"] = rid
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics():
+        m = app.state.metrics
+        m.set("active_connections", len(registry._conns))
+        return PlainTextResponse(m.render(), media_type="text/plain; version=0.0.4")
 
     @app.get("/health/live")
     def live():
