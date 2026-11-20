@@ -44,6 +44,8 @@ psql -h 127.0.0.1 -U postgres -d postgis -c "select version_num from harness.ale
 | 快速连续点停止/启动返回 409 | 同一空间同时只允许一个活动操作；等当前操作完成后重试 |
 | 写请求仅带 Cookie 报 `Invalid CSRF token` | CSRF 已强制 `X-CSRF-Token` 头（不再回退 Cookie）；前端会自动带，API 调用方需显式提供 |
 | 轮换签名密钥 | `scripts/rotate-secrets.ps1` 打印新值；先设 `SESSION_SIGNING_KEY_PREVIOUS=<旧>` 并替换 `SESSION_SIGNING_KEY`，重启；一个窗口后去掉 PREVIOUS 再重启。`HARNESS_WORKSPACE_TOKEN_SEED` 轮换需 rebuild 全部空间 |
+| 审计/模型记录增长 | 定期运行 `.\scripts\prune-history.ps1`（先 dry-run 看数量，再 `-Apply`）；按 `.env.local` 的 `AUDIT_RETENTION_DAYS` / `MODEL_REQUEST_RETENTION_DAYS` 删除 |
+| Docker 地址池耗尽 | worker 每 5 分钟自动 GC；若仍耗尽，按 `infra/docker/daemon.json` 扩展 Docker 地址池并重启 Docker |
 | 撤销后旧标签 | 切换租户/登出会消费未用票据并撤销派生会话 |
 
 ## 5. 隔离与加固巡检

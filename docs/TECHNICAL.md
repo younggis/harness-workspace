@@ -140,7 +140,8 @@ docs/              本文档集与验收记录
 | e2e | `HARNESS_E2E=1` | 真实浏览器 |
 | live | 有效 DeepSeek key | 产生费用 |
 
-当前结果：离线 **94 passed / 11 skipped**；带集成环境 **99 passed / 6 skipped**；前端 **6 passed**（路由守卫 + newId）。
+当前结果：离线 **94 passed / 11 skipped**；带集成环境 **99 passed / 6 skipped**；前端 **9 passed**（路由守卫 + newId + 登录态缓存）。
+性能：`apps/portal/vite.config.ts` 路由级拆包 + manualChunks；`services/llm/llm/main.py` 进程级 httpx 连接池 + `MODEL_MAX_CONCURRENT` 信号量；保留策略见 `scripts/prune-history.ps1`，Docker 地址池示例见 `infra/docker/daemon.json`。
 关键模块：`common/harness_common/quotas.py`（API/worker 共用启动配额）、`services/api/app/ratelimit.py`（Redis 登录限流）、`services/worker/worker/driver.py:gc_networks`（孤儿网络 GC）、`services/api/app/ratelimit.py`、`services/api/app/permissions.py` + `deps.py`（API token scope 强制）、`common/harness_common/password_policy.py`。
 专项探针：`scripts/runtime_isolation_probe.py`（容器内隔离）、`scripts/fileservice_probe.py`（容器内文件服务，19/19 通过）。
 

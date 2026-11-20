@@ -57,7 +57,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { House, Setting, ArrowDown } from '@element-plus/icons-vue'
 import { api } from './api'
-import { me, loadMe } from './auth'
+import { me, loadMe, invalidateMe } from './auth'
 
 const router = useRouter(), route = useRoute()
 const isTenantAdmin = computed(() => {
@@ -67,7 +67,7 @@ const isTenantAdmin = computed(() => {
 
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
-    await api('/api/auth/logout', { method: 'POST' }); me.value = null; ElMessage.success('已退出'); router.push('/login')
+    await api('/api/auth/logout', { method: 'POST' }); invalidateMe(); ElMessage.success('已退出'); router.push('/login')
   } else if (cmd === 'mfa') {
     mfaSecret.value = ''; mfaCode.value = ''; mfaDialog.value = true
     await enrollMfa()

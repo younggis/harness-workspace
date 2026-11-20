@@ -1,0 +1,7 @@
+{
+  "_comment": "Docker Desktop -> Settings -> Docker Engine. Merge default-address-pools into the existing JSON and restart Docker. Gives ~512 isolated /24 space networks instead of the small default pool. Existing networks are NOT migrated; take a backup of daemon.json first.",
+  "default-address-pools": [
+    { "base": "10.210.0.0/16", "size": 24 },
+    { "base": "10.211.0.0/16", "size": 24 }
+  ]
+}

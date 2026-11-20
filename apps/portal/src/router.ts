@@ -1,10 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from './views/Login.vue'
-import Home from './views/Home.vue'
-import Admin from './views/Admin.vue'
-import Files from './views/Files.vue'
-import Terminal from './views/Terminal.vue'
 import { authGuard } from './authGuard'
+
+// Route-level code splitting: heavy views (Element Plus tables, xterm) load on
+// demand instead of inflating the initial bundle.
+const Home = () => import('./views/Home.vue')
+const Admin = () => import('./views/Admin.vue')
+const Files = () => import('./views/Files.vue')
+const Terminal = () => import('./views/Terminal.vue')
 
 const router = createRouter({
   history: createWebHistory(),

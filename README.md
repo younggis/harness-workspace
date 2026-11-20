@@ -46,7 +46,7 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 .\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（99 passed / 6 skipped）
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
-Push-Location apps/portal; pnpm run test; Pop-Location   # 前端路由守卫测试（4 项）
+Push-Location apps/portal; pnpm run test; Pop-Location   # 前端测试（9 项：路由守卫/newId/登录态缓存）
 
 # 上游 dsh 升级门禁（构建候选镜像 + 契约/离线测试 + 记录）
 .\scripts\upgrade-check.ps1 -Version 0.2.2-rc.4

@@ -36,6 +36,27 @@ FIRST_BYTE_TIMEOUT = float(os.environ.get("MODEL_FIRST_BYTE_TIMEOUT", "30"))
 READ_IDLE_TIMEOUT = float(os.environ.get("MODEL_READ_IDLE_TIMEOUT", "120"))
 MAX_UPSTREAM_ATTEMPTS = 3
 TOTAL_TIMEOUT = float(os.environ.get("MODEL_TOTAL_TIMEOUT", "600"))
+MAX_CONCURRENT = int(os.environ.get("MODEL_MAX_CONCURRENT", "8"))
+
+# One pooled client for the process: TLS handshakes to DeepSeek are reused
+# instead of renegotiated for every request (avg latency reduction).
+_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
+_concurrency = asyncio.Semaphore(MAX_CONCURRENT)
+
+
+async def _upstream_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        async with _client_lock:
+            if _client is None or _client.is_closed:
+                _client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=FIRST_BYTE_TIMEOUT,
+                                          read=READ_IDLE_TIMEOUT),
+                    limits=httpx.Limits(max_connections=MAX_CONCURRENT * 2,
+                                        max_keepalive_connections=MAX_CONCURRENT),
+                )
+    return _client
 
 
 def _auth(request: Request) -> tuple[str, str, int]:
@@ -117,32 +138,33 @@ async def chat_completions(request: Request):
         try:
             for attempt in range(MAX_UPSTREAM_ATTEMPTS):
                 try:
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=FIRST_BYTE_TIMEOUT, read=READ_IDLE_TIMEOUT)) as client:
-                        async with client.stream("POST", f"{UPSTREAM}/chat/completions", json=upstream_body, headers=headers) as resp:
-                            if resp.status_code >= 400:
-                                code = "UPSTREAM_ERROR"
-                                if resp.status_code in (401, 403):
-                                    code = "FORBIDDEN"
-                                elif resp.status_code == 429:
-                                    code = "RATE_LIMITED"
-                                yield f"data: {json.dumps({'error': {'code': code, 'message': 'model upstream error', 'request_id': request_id}})}\n\n"
-                                return
-                            async for line in resp.aiter_lines():
-                                if not line or not line.startswith("data:"):
-                                    continue
-                                payload = line[5:].strip()
-                                if payload == "[DONE]":
-                                    yield "data: [DONE]\n\n"
-                                    continue
-                                try:
-                                    obj = json.loads(payload)
-                                except Exception:
-                                    continue
-                                if obj.get("usage"):
-                                    usage_seen = True
-                                    _settle(request_id, obj["usage"], latency_ms=int((time.monotonic() - start) * 1000))
-                                yield f"data: {json.dumps(obj, separators=(',', ':'))}\n\n"
-                            return  # stream completed
+                  async with _concurrency:
+                    client = await _upstream_client()
+                    async with client.stream("POST", f"{UPSTREAM}/chat/completions", json=upstream_body, headers=headers) as resp:
+                        if resp.status_code >= 400:
+                            code = "UPSTREAM_ERROR"
+                            if resp.status_code in (401, 403):
+                                code = "FORBIDDEN"
+                            elif resp.status_code == 429:
+                                code = "RATE_LIMITED"
+                            yield f"data: {json.dumps({'error': {'code': code, 'message': 'model upstream error', 'request_id': request_id}})}\n\n"
+                            return
+                        async for line in resp.aiter_lines():
+                            if not line or not line.startswith("data:"):
+                                continue
+                            payload = line[5:].strip()
+                            if payload == "[DONE]":
+                                yield "data: [DONE]\n\n"
+                                continue
+                            try:
+                                obj = json.loads(payload)
+                            except Exception:
+                                continue
+                            if obj.get("usage"):
+                                usage_seen = True
+                                _settle(request_id, obj["usage"], latency_ms=int((time.monotonic() - start) * 1000))
+                            yield f"data: {json.dumps(obj, separators=(',', ':'))}\n\n"
+                        return  # stream completed
                 except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
                     print(f"[llm] upstream attempt {attempt+1} failed: {type(exc).__name__}", flush=True)
                     if attempt == MAX_UPSTREAM_ATTEMPTS - 1:
@@ -161,14 +183,17 @@ async def chat_completions(request: Request):
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     # Non-streaming: collect the single JSON response, settle usage, return.
-    async with httpx.AsyncClient(timeout=TOTAL_TIMEOUT) as client:
+    t0 = time.monotonic()
+    async with _concurrency:
+        client = await _upstream_client()
         resp = await client.post(f"{UPSTREAM}/chat/completions", json=upstream_body, headers=headers)
+    latency_ms = int((time.monotonic() - t0) * 1000)
     if resp.status_code >= 400:
-        _settle_unknown(request_id, 0)
+        _settle_unknown(request_id, latency_ms)
         code = {401: "FORBIDDEN", 403: "FORBIDDEN", 429: "RATE_LIMITED"}.get(resp.status_code, "UPSTREAM_ERROR")
         return error_response(code, "model upstream error", status=502, request_id=request_id)
     obj = resp.json()
-    _settle(request_id, obj.get("usage"), latency_ms=0)
+    _settle(request_id, obj.get("usage"), latency_ms=latency_ms)
     return JSONResponse(obj)
 
 

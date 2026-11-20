@@ -82,6 +82,8 @@ docker compose --env-file .env.local -p harness-prod -f compose.prod.yaml up -d
 - 单空间模板：1 CPU / 1 GiB / pids 256（见模板表）；租户可声明自己的单空间规格与运行态总量上限（CPU/内存/PIDS），空间继承并可覆盖，受 `limits.py` 平台上限约束，详见 `docs/TENANT_RESOURCES.md`。GPU 不在本轮范围。
 - 容量基线快照见 `docs/capacity.md`（宿主 16 核/31 GB，开发态每空间约 300 MiB）。
 - **T17 完整压测待专用环境**：冷/热启动 ×5、1/2/4 空间并发。
+- **Docker 地址池**：空间很多时默认池会耗尽（`all predefined address pools have been fully subnetted`）。把 `infra/docker/daemon.json` 的 `default-address-pools` 合并进 Docker Desktop → Settings → Docker Engine 并重启；注意已有网络不会迁移，先备份。worker 每 5 分钟自动 GC 孤立网络。
+- **历史数据保留**：`AUDIT_RETENTION_DAYS` / `MODEL_REQUEST_RETENTION_DAYS`（默认 90 天）；定期运行 `.\scripts\prune-history.ps1 -Apply`（先 dry-run 确认数量）。
 
 ## 8. 备份/恢复/PITR
 

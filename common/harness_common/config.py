@@ -70,6 +70,11 @@ class Settings:
     redis_url: str = field(default_factory=lambda: _env("REDIS_URL"))
     scim_bearer_token: str = field(default_factory=lambda: _env("SCIM_BEARER_TOKEN"))
 
+    # Data retention for audit / model-request history (see scripts/prune-history.ps1).
+    audit_retention_days: int = field(default_factory=lambda: int(_env("AUDIT_RETENTION_DAYS", "90")))
+    model_request_retention_days: int = field(
+        default_factory=lambda: int(_env("MODEL_REQUEST_RETENTION_DAYS", "90")))
+
     dsh_version: str = field(default_factory=lambda: _env("DSH_VERSION", "0.2.2-rc.4"))
     edge_port: int = field(default_factory=lambda: int(_env("EDGE_PORT", "8080")))
 

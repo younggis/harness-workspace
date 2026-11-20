@@ -544,6 +544,15 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 真实栈：CSRF 仅 cookie → 403；Bearer(user:read) → `/api/admin/users` 200、`/api/admin/audit` 403；弱密码 → 409；浏览器停止按钮仍正常
 - `.env.example` / `compose.prod.yaml` 已加 `SESSION_SIGNING_KEY_PREVIOUS`，prod config 校验通过
 
+### 1.36 P2 性能与容量
+1. **前端拆包**：路由级动态 import（Home/Admin/Files/Terminal）+ Rollup manualChunks（element-plus / xterm / vue / vendor）。入口包从单文件 **1.33 MB → 13 KB**；xterm(285KB) 仅在终端路由加载
+2. **`/api/me` 缓存**：`auth.ts` 加 30 秒 TTL + `invalidateMe()`（登出清缓存）；避免每次导航重复请求
+3. **历史数据保留**：新增 `AUDIT_RETENTION_DAYS` / `MODEL_REQUEST_RETENTION_DAYS`（默认 90 天）与 `scripts/prune-history.ps1`（默认 dry-run，`-Apply` 批量删除，每表每轮最多 10000 行）
+4. **Docker 地址池**：新增 `infra/docker/daemon.json` 示例（两组 /16 → 512 个 /24 子网），解决空间网络耗尽地址池（配合 P0 的 worker 自动 GC）
+5. **模型代理**：进程级共享 `httpx.AsyncClient`（连接/TLS 复用）+ `MODEL_MAX_CONCURRENT=8` 并发信号量；修复非流式请求 `latency_ms=0`
+- 前端测试 **9 passed**（新增 auth 缓存 3 项）；后端 **94 passed / 11 skipped**（离线）、**99 passed / 6 skipped**（集成）
+- 真实验证：拆包后 edge 提供新入口 `index-CRuulIlK.js`；prune dry-run 报告 0 行到期；重建 llm/api/worker/edge 后登录→启动→进入空间→真实 DeepSeek 对话成功（`P2OK`，2 秒，9.6K tok）；health 200，llm 日志无错误
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
