@@ -14,6 +14,7 @@ from harness_common.errors import APIError, api_error_handler, error_response
 from . import routers
 from .routers import oidc, mfa, scim, tokens
 from .connections import ConnectionRegistry
+from .ratelimit import LoginRateLimiter
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = ConnectionRegistry(lambda: app.state.session_factory,
                                   redis_url=settings.redis_url)
     app.state.connections = registry
+    app.state.login_limiter = LoginRateLimiter(redis_url=settings.redis_url)
 
     @app.on_event("startup")
     async def start_connections():

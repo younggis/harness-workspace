@@ -70,26 +70,9 @@ def check_tenant_totals_fit(db, tenant) -> None:
 
 
 def check_running_totals(db, tenant, workspace) -> None:
-    """Reject a start that would exceed the tenant's running resource totals."""
-    from sqlalchemy import func, select
+    """Deprecated shim: start-quota checks now live in harness_common.quotas."""
+    from harness_common.quotas import check_start_quotas
 
-    active = db.execute(
-        select(
-            func.coalesce(func.sum(func.coalesce(m.Workspace.cpu, tenant.cpu_per_space)), 0),
-            func.coalesce(func.sum(func.coalesce(m.Workspace.memory_bytes, tenant.memory_per_space_bytes)), 0),
-            func.coalesce(func.sum(func.coalesce(m.Workspace.pids_limit, tenant.pids_per_space)), 0),
-        ).where(
-            m.Workspace.tenant_id == tenant.id,
-            m.Workspace.id != workspace.id,
-            m.Workspace.desired_state == m.DESIRED_RUNNING,
-        )
-    ).one()
-    cpu = (workspace.cpu or tenant.cpu_per_space) + (active[0] or 0)
-    memory = (workspace.memory_bytes or tenant.memory_per_space_bytes) + (active[1] or 0)
-    pids = (workspace.pids_limit or tenant.pids_per_space) + (active[2] or 0)
-    if cpu > tenant.max_total_cpu:
-        _fail(f"running CPU quota exceeded ({cpu} > {tenant.max_total_cpu})")
-    if memory > tenant.max_total_memory_bytes:
-        _fail(f"running memory quota exceeded ({memory} > {tenant.max_total_memory_bytes})")
-    if pids > tenant.max_total_pids:
-        _fail(f"running PIDS quota exceeded ({pids} > {tenant.max_total_pids})")
+    err = check_start_quotas(db, tenant, workspace)
+    if err:
+        raise APIError(err[0], err[1])

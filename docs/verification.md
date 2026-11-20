@@ -525,6 +525,15 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 回归：`apps/portal/src/api.test.ts` 2 项（randomUUID 路径 + 非安全上下文回退路径）；前端共 **6 passed**
 - 真实浏览器复验：点「停止」→ `已提交停止请求`、期望状态转 stopped；点「启动」→ `已提交启动请求`、期望状态转 running；无 `crypto` 错误。worker 日志显示 stop/start 均 succeeded，运行时容器被重建
 
+### 1.34 P0 加固（正确性 / 一致性）
+1. **对账绕过配额**：新增 `common/harness_common/quotas.py:check_start_quotas()`，API 与 worker 共用；worker `process(OP_START)` 现在也会拒绝超出 `max_running` 或资源总量的 start（失败置 `OP_FAILED`，不创建容器）
+2. **登录限流多副本失效**：新增 `services/api/app/ratelimit.py:LoginRateLimiter`，Redis sorted-set 跨副本共享计数（失败自动降级本地）；`app.state.login_limiter` 注入，`auth.login` 改用之
+3. **DB idle-in-transaction 锁泄漏**：`make_engine` 对 PG 连接设置 `statement_timeout=120s`、`idle_in_transaction_session_timeout=60s`；`get_db` / `session_scope` 异常路径显式 rollback。真实验证应用连接 SHOW 分别为 `2min` / `1min`
+4. **generation 漂移与孤儿网络**：API rebuild 不再提前 bump generation（由 worker 成功后推进）；worker 每 5 分钟调用 `driver.gc_networks(keep)`，只保留当前代网络、先摘除 relay/llm 再删除
+5. **附带修复**：快速 stop→start 触发 `uq_op_active_ws` 唯一约束导致 500 → 捕获 `IntegrityError` 返回干净 409
+- `tests/test_p0_hardening.py` 6 项通过；全量 **88 passed / 11 skipped**（离线）、**93 passed / 6 skipped**（集成）
+- 真实栈：镜像重建上线、health 200；worker 日志出现 `gc removed 1 orphan space networks`，4 个当前空间网络与 4 个运行时均完好；API 日志无新增 500
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

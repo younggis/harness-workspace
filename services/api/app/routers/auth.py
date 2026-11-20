@@ -1,7 +1,6 @@
 """Authentication, tenant selection and logout."""
 from __future__ import annotations
 
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -23,9 +22,6 @@ from ..deps import (
 router = APIRouter(prefix="/api")
 
 SESSION_TTL_SECONDS = 8 * 3600
-_FAILED: dict[str, list[float]] = {}
-_MAX_FAILURES = 5
-_WINDOW = 300
 
 
 def _user_tenants(db, user_id) -> list[m.Tenant]:
@@ -88,17 +84,15 @@ def _revoke_session_dependents(db, session: m.AuthSession) -> None:
 @router.post("/auth/login")
 def login(body: s.LoginIn, request: Request, response: Response, db: DbSession, settings: SettingsDep):
     login_norm = body.login.strip().lower()
-    now = time.time()
-    attempts = [t for t in _FAILED.get(login_norm, []) if now - t < _WINDOW]
-    if len(attempts) >= _MAX_FAILURES:
+    limiter = request.app.state.login_limiter
+    if not limiter.allowed(login_norm):
         raise APIError("RATE_LIMITED", "Too many failed logins", retryable=True)
-    _FAILED[login_norm] = attempts
 
     user = db.execute(select(m.User).where(m.User.login_norm == login_norm)).scalar_one_or_none()
     if not user or user.status != m.USER_ACTIVE or not verify_password(user.password_hash, body.password):
-        _FAILED[login_norm].append(now)
+        limiter.record_failure(login_norm)
         raise APIError("UNAUTHENTICATED", "Invalid credentials")  # generic message
-    _FAILED.pop(login_norm, None)
+    limiter.clear(login_norm)
 
     # MFA: password alone is not a session when the user enrolled TOTP.
     if user.mfa_enabled and user.mfa_secret:

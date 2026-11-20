@@ -70,6 +70,12 @@ def process(op: m.WorkspaceOperation, driver: RuntimeDriver) -> None:
         try:
             spec = _spec_for(db, ws)
             if op.op == m.OP_START:
+                # Authoritative quota check: reconciler-enqueued starts bypass the
+                # API entirely, so the same shared check must run here too.
+                from harness_common.quotas import check_start_quotas
+                err = check_start_quotas(db, db.get(m.Tenant, ws.tenant_id), ws)
+                if err:
+                    raise RuntimeError(f"{err[0]}: {err[1]}")
                 # Every start gets a fresh workspace token; revoke any old one.
                 for old in db.query(m.RuntimeCredential).filter(
                     m.RuntimeCredential.workspace_id == ws.id,
@@ -193,13 +199,35 @@ def reconcile(driver: RuntimeDriver) -> None:
         db.commit()
 
 
+def gc_orphan_networks(driver: RuntimeDriver) -> int:
+    """Keep only the current-generation network of each enabled workspace."""
+    if not hasattr(driver, "gc_networks"):
+        return 0
+    with factory() as db:
+        rows = db.query(m.Workspace).all()
+    keep = {
+        f"harness-{settings.installation_id}-net-{ws.id}-g{ws.generation}"
+        for ws in rows if ws.enabled
+    }
+    return driver.gc_networks(keep)
+
+
 def run_forever() -> None:
     driver = DockerRuntimeDriver(settings.installation_id)
     last = 0.0
+    last_gc = 0.0
     while True:
         if time.monotonic() - last > 15:
             reconcile(driver)
             last = time.monotonic()
+        if time.monotonic() - last_gc > 300:
+            try:
+                removed = gc_orphan_networks(driver)
+                if removed:
+                    print(f"[worker] gc removed {removed} orphan space networks", flush=True)
+            except Exception as exc:
+                print(f"[worker] gc error: {type(exc).__name__}: {exc}", flush=True)
+            last_gc = time.monotonic()
         with factory() as db:
             op = _claim_one(db)
         if op:

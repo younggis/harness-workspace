@@ -42,8 +42,8 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 ## 测试
 
 ```powershell
-.\scripts\test.ps1 -Suite offline       # 82 passed / 11 skipped，无需密钥/Docker
-.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（87 passed / 6 skipped）
+.\scripts\test.ps1 -Suite offline       # 88 passed / 11 skipped，无需密钥/Docker
+.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（93 passed / 6 skipped）
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
 Push-Location apps/portal; pnpm run test; Pop-Location   # 前端路由守卫测试（4 项）

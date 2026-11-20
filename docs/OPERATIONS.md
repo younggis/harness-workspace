@@ -40,7 +40,8 @@ psql -h 127.0.0.1 -U postgres -d postgis -c "select version_num from harness.ale
 | 会话泄露 / 人员离职 | 管理页列会话 → 吊销；空间动作 stop/disable 在 3s 内关闭活跃连接 |
 | token 泄露 | `DELETE /api/me/tokens/{tid}` 或重新签发；SCIM 停用用户级联撤会话 |
 | 配额调整 | 管理页改租户 max_running / max_workspaces / daily_token_budget 及 CPU/内存/PIDS 单空间规格与总量上限（下调总量不得低于当前用量，新配额在下次 start/rebuild 生效） |
-| Docker 报 `all predefined address pools have been fully subnetted` | 历史遗留孤立空间网络耗尽地址池；先 `.\scripts\cleanup-space-networks.ps1`（dry-run）确认，再加 `-Apply` 清理 |
+| Docker 报 `all predefined address pools have been fully subnetted` | 历史遗留孤立空间网络耗尽地址池；worker 现在每 5 分钟自动 GC，紧急时可 `.\scripts\cleanup-space-networks.ps1`（dry-run）确认后加 `-Apply` |
+| 快速连续点停止/启动返回 409 | 同一空间同时只允许一个活动操作；等当前操作完成后重试 |
 | 撤销后旧标签 | 切换租户/登出会消费未用票据并撤销派生会话 |
 
 ## 5. 隔离与加固巡检

@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from harness_common import models as m
 from harness_common.errors import APIError
@@ -14,7 +15,8 @@ from .. import schemas as s
 from ..deps import (
     DbSession, IdempotencyDep, IdentityDep, PlatformAdminDep, TenantAdminDep,
 )
-from ..resources import check_running_totals, resolve_space_resources
+from harness_common.quotas import check_start_quotas
+from ..resources import resolve_space_resources
 
 router = APIRouter(prefix="/api")
 
@@ -153,19 +155,11 @@ async def workspace_action(wid: uuid.UUID, action: str, request: Request, db: Db
         return s.OperationOut(operation_id=existing.id, workspace_id=wid,
                               state=existing.state, op=existing.op, error_code=existing.error_code)
 
-    # Enforce running quota for start (counts reserved starting/provisioning/running).
+    # Enforce running quota for start (shared with the worker reconciler).
     if action == "start":
-        tenant = db.get(m.Tenant, ws.tenant_id)
-        running = db.execute(
-            select(func.count()).select_from(m.Workspace).where(
-                m.Workspace.tenant_id == ws.tenant_id,
-                m.Workspace.id != ws.id,
-                m.Workspace.desired_state == m.DESIRED_RUNNING,
-            )
-        ).scalar_one()
-        if running >= tenant.max_running:
-            raise APIError("RATE_LIMITED", "Running workspace quota exceeded")
-        check_running_totals(db, tenant, ws)
+        err = check_start_quotas(db, db.get(m.Tenant, ws.tenant_id), ws)
+        if err:
+            raise APIError(err[0], err[1])
 
     target_generation = ws.generation + 1 if action == "rebuild" else ws.generation
     op = m.WorkspaceOperation(
@@ -186,13 +180,20 @@ async def workspace_action(wid: uuid.UUID, action: str, request: Request, db: Db
         ws.enabled = True
         ws.auth_epoch += 1
     elif action == "rebuild":
-        ws.generation = target_generation
+        # Do NOT advance generation here. The worker advances it only after the
+        # new container is up (see worker/main.py:process). Advancing it early
+        # left orphan per-generation networks when the rebuild failed.
         ws.auth_epoch += 1
 
     db.add(m.AuditEvent(actor_id=identity.user.id, tenant_id=ws.tenant_id, workspace_id=wid,
                         action=f"workspace.{action}", result="success",
                         request_id=request.state.request_id))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another operation is still active on this space (uq_op_active_ws).
+        db.rollback()
+        raise APIError("CONFLICT", "Another operation is in progress for this workspace")
     # Stop/disable must close live WS/terminal/SSE within 3 seconds.
     if action in (m.OP_STOP, m.OP_DISABLE):
         await request.app.state.connections.close_workspace(wid)

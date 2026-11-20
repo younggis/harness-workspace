@@ -31,11 +31,9 @@ from harness_common.security import hash_password, new_token, token_hash  # noqa
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
-    # Login failure counters are process-global; clear per test for isolation.
-    from services.api.app.routers import auth as auth_router
-    auth_router._FAILED.clear()
+    # The limiter now lives on app.state (per-test app instance), so counters
+    # are naturally isolated. Yield kept for fixture API compatibility.
     yield
-    auth_router._FAILED.clear()
 
 
 @pytest.fixture

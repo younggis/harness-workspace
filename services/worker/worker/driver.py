@@ -185,6 +185,39 @@ class DockerRuntimeDriver(RuntimeDriver):
         c.reload()
         return {"running": c.status == "running", "id": c.id, "status": c.status}
 
+    def gc_networks(self, keep: set[str]) -> int:
+        """Remove space networks that are neither current nor host a runtime.
+
+        Stale per-generation networks accumulate after failed rebuilds and can
+        exhaust Docker's predefined address pools. Gateway containers (relay/llm)
+        are detached first; they are reattached to current networks by
+        attach_gateway on the next reconcile.
+        """
+        import re
+        removed = 0
+        pattern = re.compile(r"-net-[0-9a-f-]+-g\d+$")
+        for net in self.client.networks.list(
+            filters={"label": f"harness.installation={self.installation_id}"}
+        ):
+            name = net.name
+            if not pattern.search(name) or name in keep:
+                continue
+            net.reload()
+            containers = net.attrs.get("Containers") or {}
+            if any("-rt-" in (v.get("Name") or "") for v in containers.values()):
+                continue
+            for endpoint in list(containers.keys()):
+                try:
+                    net.disconnect(endpoint, force=True)
+                except Exception:
+                    pass
+            try:
+                net.remove()
+                removed += 1
+            except Exception:
+                pass
+        return removed
+
     def attach_gateway(self, spec: SpaceSpec) -> None:
         net_name = self._names(spec)[2]
         net = self.client.networks.get(net_name)

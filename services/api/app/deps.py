@@ -36,7 +36,14 @@ def get_db(request: Request) -> Session:
     session = factory()
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
+        # close() also rolls back, but an explicit rollback makes the intent
+        # clear and guarantees no idle transaction is left holding locks.
+        if session.in_transaction():
+            session.rollback()
         session.close()
 
 

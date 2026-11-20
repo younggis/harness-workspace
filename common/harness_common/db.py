@@ -32,6 +32,11 @@ def make_engine(url: str, *, schema: str | None = None, echo: bool = False) -> E
             cur = dbapi_conn.cursor()
             try:
                 cur.execute(f'SET search_path TO "{schema}", pg_catalog')
+                # A leaked session holding an idle transaction can block DDL
+                # (migrations, rebuild bookkeeping) indefinitely. Bound it.
+                cur.execute("SET statement_timeout = '120s'")
+                cur.execute("SET idle_in_transaction_session_timeout = '60s'")
+                dbapi_conn.commit()
             finally:
                 cur.close()
     return engine
@@ -45,7 +50,12 @@ def session_scope(factory: sessionmaker) -> Iterator[Session]:
     session = factory()
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
+        if session.in_transaction():
+            session.rollback()
         session.close()
 
 
