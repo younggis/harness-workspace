@@ -75,18 +75,18 @@ TOTP MFA：用户登录后调用 `POST /api/auth/mfa/enroll` 获取密钥，用�
 `POST /api/auth/mfa/complete` 才建立会话。真实 IdP 联调待现场验证。
 
 ## 产品化后续
-连接注册表与撤权、生命周期约束、契约样本与升级门禁已落地（见 `docs/verification.md` 1.12–1.14）；
-仍待推进：剩余 P0 隔离/停用 E2E、备份恢复演练、容量基线、远程/HTTPS 部署、K8s RuntimeDriver。
+OIDC/MFA/SCIM/服务账号、细粒度 RBAC、跨进程撤权、隔离渗透、PITR、HTTPS+secrets、
+升级门禁均已落地（见 `docs/verification.md` 1.12–1.29）；K8s RuntimeDriver 为预留扩展点。
 
 ## 当前验收状态（摘要）
 
-- ✅ 真实 PG 引导、迁移（14 张表，0001_init）、管理员创建、容器→宿主认证登录
-- ✅ 离线 22 项通过（身份/租户/隔离/票据/幂等/配额/对账/签名）
-- ✅ 镜像构建、浏览器登录、租户/空间分配、票据兑换、文件与终端、真实 DeepSeek 对话
-- ✅ T14 完整业务链：Agent 用 Python 标准库统计三点 GeoJSON 写出 `result.json`
-  （`{"count": 3, "bbox": [0, 0, 3, 4]}`），网页与终端均可读取
-- ✅ Test Tenant / 登录 / 会话 / 工作空间进入实测通过（`docs/verification.md` 1.9 / 1.10）
-- ⚠️ A2/B1 跨租户越权实测、停用后终端关闭、备份恢复演练、容量基线 T17 待验证
+- ✅ 真实 PG 引导、迁移（14 张表，`0006_api_tokens`）、管理员创建、容器→宿主认证登录
+- ✅ 全量测试：离线 **51 passed / 7 skipped**，带集成环境 **82 passed / 6 skipped**
+- ✅ 全流程浏览器 E2E：登录/管理/租户切换/空间进入/真实 DeepSeek 对话/文件/终端/RBAC/登出
+- ✅ 极端条件：26 项离线异常测试 + 19/19 容器内文件服务探针 + 真实网关票据/Origin/Host/跨空间网络隔离
+- ✅ 备份恢复 / PITR / 容量基线 / 三空间隔离探针全通过
+- ⚠️ 待验证（需环境/授权）：真实 IdP、受信任证书 HTTPS、现有 Windows PG 主从/归档、
+  第三方渗透测试与合规材料、T17 完整压测（冷/热启动 ×5、1/2/4 空间并发）
   详见 `docs/verification.md` 第 4 节 T01–T17。
 
 ## 结构
