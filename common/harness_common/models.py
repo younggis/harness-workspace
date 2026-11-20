@@ -216,6 +216,21 @@ class RuntimeCredential(Base):
     )
 
 
+class ApiToken(Base):
+    """Scoped bearer token for service accounts / automation."""
+    __tablename__ = "api_tokens"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    scopes: Mapped[str] = mapped_column(String(512), nullable=False)  # space-separated
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class ModelRequest(Base):
     __tablename__ = "model_requests"
     request_id: Mapped[str] = mapped_column(String(128), primary_key=True)

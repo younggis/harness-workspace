@@ -12,7 +12,7 @@ from harness_common.db import make_engine, make_session_factory, ping
 from harness_common.errors import APIError, api_error_handler, error_response
 
 from . import routers
-from .routers import oidc, mfa, scim
+from .routers import oidc, mfa, scim, tokens
 from .connections import ConnectionRegistry
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -107,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(oidc.router)
     app.include_router(mfa.router)
     app.include_router(scim.router)
+    app.include_router(tokens.router)
     app.include_router(routers.gateway.router)
     return app
 

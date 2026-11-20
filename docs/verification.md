@@ -449,6 +449,13 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - `.env.example`、init-secrets、compose.prod.yaml 已加入 SCIM secret；prod config 校验通过
 - 全量离线 **45 passed / 7 skipped**
 
+### 1.27 服务账号（Scoped API Tokens）
+- 新增 `ApiToken` 模型 + 迁移 0006（harness 与 harness_test 均已升级到 0006）
+- 端点 `POST/GET/DELETE /api/me/tokens`：创建时仅一次返回明文 token，列举不含 hash，撤销即时生效
+- 权限 scope 白名单 12 项；SCIM 现同时接受静态 bearer 与 `scim:write` scope 的 API token（记录 last_used_at）
+- `tests/test_tokens.py` 3 项通过：创建/列举/撤销、未知 scope 拒绝、SCIM 接受作用域 token
+- 全量离线 **48 passed / 7 skipped**
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

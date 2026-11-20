@@ -14,7 +14,7 @@ from sqlalchemy import select
 from harness_common import models as m
 from harness_common.config import Settings, get_settings
 from harness_common.errors import APIError
-from harness_common.security import hash_password, constant_time_eq
+from harness_common.security import hash_password, constant_time_eq, token_hash
 
 from ..deps import DbSession
 
@@ -24,12 +24,30 @@ SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
 
 def _auth(request: Request) -> None:
     settings = request.app.state.settings
-    if not settings.scim_bearer_token:
-        raise APIError("UNAVAILABLE", "SCIM is not configured")
     header = request.headers.get("authorization", "")
     token = header[7:].strip() if header.lower().startswith("bearer ") else ""
-    if not token or not constant_time_eq(token, settings.scim_bearer_token):
+    if not token:
         raise APIError("UNAUTHENTICATED", "Invalid SCIM token")
+    # Static maintainer token (legacy) or a scoped API token.
+    if settings.scim_bearer_token and constant_time_eq(token, settings.scim_bearer_token):
+        return
+    factory = request.app.state.session_factory
+    try:
+        with factory() as db:
+            row = db.execute(select(m.ApiToken).where(
+                m.ApiToken.token_hash == token_hash(token),
+                m.ApiToken.revoked_at.is_(None),
+                m.ApiToken.expires_at > datetime.now(timezone.utc),
+            )).scalar_one_or_none()
+            if row and "scim:write" in row.scopes.split():
+                row.last_used_at = datetime.now(timezone.utc)
+                db.commit()
+                return
+    except Exception:
+        pass
+    if not settings.scim_bearer_token:
+        raise APIError("UNAVAILABLE", "SCIM is not configured")
+    raise APIError("UNAUTHENTICATED", "Invalid SCIM token")
 
 
 def _scim_user(u: m.User) -> dict:
