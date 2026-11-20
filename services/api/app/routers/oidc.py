@@ -47,7 +47,7 @@ def callback(request: Request, code: str | None = None, state: str | None = None
              error: str | None = None, settings: Settings = Depends(get_settings)):
     if error or not code or not state:
         raise APIError("UNAUTHENTICATED", "OIDC login cancelled or failed")
-    raw = auth_oidc.verify_state(request.cookies.get(STATE_COOKIE, ""), settings.session_signing_key)
+    raw = auth_oidc.verify_state_rotated(request.cookies.get(STATE_COOKIE, ""), settings)
     if not raw:
         raise APIError("UNAUTHENTICATED", "Invalid OIDC state")
     state_v, nonce, verifier = raw.split(":", 2)

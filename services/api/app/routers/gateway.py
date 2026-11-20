@@ -71,6 +71,8 @@ def _require_workspace_session(request: Request, db, settings) -> tuple[m.Worksp
 @router.post("/api/workspaces/{wid}/entry-tickets", response_model=s.EntryTicketOut, status_code=201)
 def create_ticket(wid: uuid.UUID, body: s.EntryTicketIn, request: Request, db: DbSession,
                   identity: IdentityDep, settings: SettingsDep, _csrf: CsrfDep):
+    if identity.is_api_token:
+        raise APIError("FORBIDDEN", "A browser session is required to enter a workspace")
     ws = db.get(m.Workspace, wid)
     if not ws or not ws.enabled or ws.tenant_id != identity.tenant_id:
         raise APIError("NOT_FOUND", "Workspace not found")

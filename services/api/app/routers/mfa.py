@@ -65,7 +65,7 @@ def disable(request: Request, body: dict, db: DbSession, identity: IdentityDep, 
 @router.post("/complete")
 def complete(body: dict, response: Response, db: DbSession, settings: SettingsDep,
              request: Request):
-    raw = auth_oidc.verify_state(request.cookies.get("harness_mfa", ""), settings.session_signing_key)
+    raw = auth_oidc.verify_state_rotated(request.cookies.get("harness_mfa", ""), settings)
     if not raw or ":" not in raw:
         raise APIError("UNAUTHENTICATED", "MFA ticket invalid or expired")
     uid, _ticket = raw.split(":", 1)

@@ -534,6 +534,16 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - `tests/test_p0_hardening.py` 6 项通过；全量 **88 passed / 11 skipped**（离线）、**93 passed / 6 skipped**（集成）
 - 真实栈：镜像重建上线、health 200；worker 日志出现 `gc removed 1 orphan space networks`，4 个当前空间网络与 4 个运行时均完好；API 日志无新增 500
 
+### 1.35 P1 安全加固
+1. **CSRF 强制 header**：`require_csrf` 移除 cookie 回退（API token 免 CSRF）；仅靠 cookie 的写请求 → 403
+2. **API token scope 全局强制**：`current_identity` 支持 `Authorization: Bearer <token>` 服务账号认证；`Identity` 带 `scopes/is_api_token`；`permissions_for` 对 token 仅授予已授权 scope；`require_platform_admin/require_tenant_admin` 对 token 让权给端点 `require_permission`（并为 `list_tenants` 补 `TENANT_READ`）；token 记录 `last_used_at`（SQLite naive datetime 兼容）
+3. **密码策略**：新增 `password_policy.py`（长度≥12、4 类中至少 3 类、常见弱密码、不得含账号名）；应用于用户创建/重置密码与 CLI 首个管理员
+4. **密钥轮换**：`SESSION_SIGNING_KEY_PREVIOUS` 支持 OIDC/MFA state 双密钥验证窗口；新增 `scripts/rotate-secrets.ps1`（只打印新值与两阶段步骤，不改文件）
+5. **优雅关闭**：`on_event` → `lifespan`，关闭时 `await registry.stop()` 断开活跃连接（弃用警告从 266 降到 2）
+- `tests/test_p1_hardening.py` 6 项通过；全量 **94 passed / 11 skipped**（离线）、**99 passed / 6 skipped**（集成）
+- 真实栈：CSRF 仅 cookie → 403；Bearer(user:read) → `/api/admin/users` 200、`/api/admin/audit` 403；弱密码 → 409；浏览器停止按钮仍正常
+- `.env.example` / `compose.prod.yaml` 已加 `SESSION_SIGNING_KEY_PREVIOUS`，prod config 校验通过
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

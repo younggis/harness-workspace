@@ -66,6 +66,7 @@ def _tenant_out(t: m.Tenant) -> dict:
 
 @router.get("/admin/tenants")
 def list_tenants(db: DbSession, _admin: PlatformAdminDep,
+                 _perm=require_permission(Perm.TENANT_READ),
                  cursor: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     rows = db.execute(select(m.Tenant).order_by(m.Tenant.created_at).offset(cursor).limit(limit)).scalars()
     return {"items": [
@@ -112,6 +113,10 @@ async def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
 def create_user(body: s.CreateUserIn, request: Request, db: DbSession, _admin: PlatformAdminDep,
                 _perm=require_permission(Perm.USER_WRITE)):
     login_norm = body.login.strip().lower()
+    from harness_common.password_policy import validate_password
+    err = validate_password(body.password, login=login_norm)
+    if err:
+        raise APIError("CONFLICT", err)
     if db.execute(select(m.User).where(m.User.login_norm == login_norm)).scalar_one_or_none():
         raise APIError("CONFLICT", "Login already exists")
     user = m.User(
@@ -184,8 +189,10 @@ def reset_password(uid: uuid.UUID, body: dict, request: Request,
     if not user:
         raise APIError("NOT_FOUND", "User not found")
     password = str(body.get("password", ""))
-    if len(password) < 12:
-        raise APIError("CONFLICT", "Password must be at least 12 characters")
+    from harness_common.password_policy import validate_password
+    err = validate_password(password, login=user.login_norm)
+    if err:
+        raise APIError("CONFLICT", err)
     user.password_hash = hash_password(password)
     db.add(m.AuditEvent(actor_id=_admin.user.id, target=user.login_norm,
                         action="user.password.reset", result="success",

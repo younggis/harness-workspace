@@ -32,6 +32,9 @@ _MEMBER = {Perm.WORKSPACE_READ}
 
 
 def permissions_for(identity) -> set[Perm]:
+    if identity.is_api_token:
+        # Service accounts are authorized solely by their granted scopes.
+        return {p for p in Perm if p.value in identity.scopes}
     if identity.is_platform_admin:
         return _ALL
     if identity.role == m.MEMBER_ADMIN and identity.tenant_id:

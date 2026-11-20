@@ -54,6 +54,8 @@ class Settings:
 
     relay_signing_key: str = field(default_factory=lambda: _env("RELAY_SIGNING_KEY"))
     session_signing_key: str = field(default_factory=lambda: _env("SESSION_SIGNING_KEY"))
+    # During rotation, state cookies signed with the previous key stay valid.
+    session_signing_key_previous: str = field(default_factory=lambda: _env("SESSION_SIGNING_KEY_PREVIOUS"))
     workspace_token_seed: str = field(default_factory=lambda: _env("HARNESS_WORKSPACE_TOKEN_SEED"))
 
     # Enterprise identity (OIDC) and MFA

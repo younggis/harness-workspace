@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -32,24 +33,27 @@ def _portal_origins(settings: Settings) -> set[str]:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    app = FastAPI(title="Harness Control API", version="1.0.0", docs_url="/docs", redoc_url=None)
-    app.state.settings = settings
-
     engine = make_engine(settings.app_database_url(), schema=settings.pg_schema)
+    session_factory = make_session_factory(engine)
+    registry = ConnectionRegistry(lambda: session_factory, redis_url=settings.redis_url)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        registry.start()
+        try:
+            yield
+        finally:
+            # Close live WS/SSE connections and stop the Redis listener so no
+            # client is left hanging on a rolling restart.
+            await registry.stop()
+
+    app = FastAPI(title="Harness Control API", version="1.0.0",
+                  docs_url="/docs", redoc_url=None, lifespan=lifespan)
+    app.state.settings = settings
     app.state.engine = engine
-    app.state.session_factory = make_session_factory(engine)
-    registry = ConnectionRegistry(lambda: app.state.session_factory,
-                                  redis_url=settings.redis_url)
+    app.state.session_factory = session_factory
     app.state.connections = registry
     app.state.login_limiter = LoginRateLimiter(redis_url=settings.redis_url)
-
-    @app.on_event("startup")
-    async def start_connections():
-        registry.start()
-
-    @app.on_event("shutdown")
-    async def stop_connections():
-        await registry.stop()
 
     app.add_exception_handler(APIError, api_error_handler)
 

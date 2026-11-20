@@ -45,8 +45,10 @@ def admin_create() -> int:
         if not login:
             print("Login must not be empty")
             return 2
-        if len(pw) < 12:
-            print("Password too short")
+        from harness_common.password_policy import validate_password
+        err = validate_password(pw, login=login)
+        if err:
+            print(err)
             return 2
         user = m.User(id=uuid.uuid4(), login_norm=login, display_name=display,
                       password_hash=hash_password(pw), is_platform_admin=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Cookie, Depends, Header, Request
@@ -25,6 +25,8 @@ class Identity:
     session: m.AuthSession
     tenant_id: uuid.UUID | None
     role: str | None  # tenant_admin | member | None (platform admin uses flag on user)
+    scopes: frozenset[str] = frozenset()
+    is_api_token: bool = False
 
     @property
     def is_platform_admin(self) -> bool:
@@ -67,7 +69,42 @@ def current_identity(
     request: Request,
     db: DbSession,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> Identity:
+    # Service-account authentication: scoped API tokens. No browser session,
+    # no CSRF; authorization is enforced purely by scope via require_permission.
+    if authorization and authorization.lower().startswith("bearer "):
+        raw = authorization[7:].strip()
+        tok = db.execute(
+            select(m.ApiToken).where(m.ApiToken.token_hash == token_hash(raw))
+        ).scalar_one_or_none()
+        if not tok or tok.revoked_at is not None or m.is_expired(tok.expires_at):
+            raise APIError("UNAUTHENTICATED", "Invalid API token")
+        user = db.get(m.User, tok.user_id)
+        if not user or user.status != m.USER_ACTIVE:
+            raise APIError("UNAUTHENTICATED", "Account disabled")
+        role = None
+        if tok.tenant_id is not None:
+            ms = db.execute(
+                select(m.Membership).where(
+                    m.Membership.tenant_id == tok.tenant_id,
+                    m.Membership.user_id == user.id,
+                )
+            ).scalar_one_or_none()
+            if ms and ms.status == m.MEMBER_ACTIVE:
+                role = ms.role
+        now = datetime.now(timezone.utc)
+        last = tok.last_used_at
+        if last is not None and last.tzinfo is None:  # SQLite returns naive datetimes
+            last = last.replace(tzinfo=timezone.utc)
+        if last is None or now - last > timedelta(minutes=1):
+            tok.last_used_at = now
+            db.commit()
+        return Identity(
+            user=user, session=None, tenant_id=tok.tenant_id, role=role,
+            scopes=frozenset(tok.scopes.split()), is_api_token=True,
+        )
+
     if not session_token:
         raise APIError("UNAUTHENTICATED", "Not authenticated")
     row = db.execute(
@@ -115,11 +152,14 @@ def optional_identity(
 def require_csrf(
     request: Request,
     identity: IdentityDep,
-    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> None:
-    token = csrf_header or csrf_cookie
-    if not token or not constant_time_eq(identity.session.csrf_hash, token_hash(token)):
+    # Double-submit must use the header. Accepting the cookie as a fallback
+    # defeats the purpose (a browser sends cookies automatically). API tokens
+    # are Bearer-authenticated and do not need CSRF protection.
+    if identity.is_api_token:
+        return
+    if not csrf_header or not constant_time_eq(identity.session.csrf_hash, token_hash(csrf_header)):
         raise APIError("FORBIDDEN", "Invalid CSRF token")
 
 
@@ -127,6 +167,8 @@ CsrfDep = Annotated[None, Depends(require_csrf)]
 
 
 def require_platform_admin(identity: IdentityDep) -> Identity:
+    if identity.is_api_token:
+        return identity  # the endpoint's require_permission(...) is authoritative
     if not identity.is_platform_admin:
         raise APIError("FORBIDDEN", "Platform administrator required")
     return identity
@@ -136,6 +178,8 @@ PlatformAdminDep = Annotated[Identity, Depends(require_platform_admin)]
 
 
 def require_tenant_admin(identity: IdentityDep) -> Identity:
+    if identity.is_api_token:
+        return identity  # the endpoint's require_permission(...) is authoritative
     if identity.is_platform_admin:
         return identity
     if identity.role != m.MEMBER_ADMIN or identity.tenant_id is None:

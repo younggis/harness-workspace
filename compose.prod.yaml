@@ -44,6 +44,7 @@ services:
       PG_APP_PASSWORD_FILE: /run/secrets/pg_app_password
       RELAY_SIGNING_KEY_FILE: /run/secrets/relay_signing_key
       SESSION_SIGNING_KEY_FILE: /run/secrets/session_signing_key
+      SESSION_SIGNING_KEY_PREVIOUS: ${SESSION_SIGNING_KEY_PREVIOUS:-}
       HARNESS_WORKSPACE_TOKEN_SEED_FILE: /run/secrets/workspace_token_seed
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_ISSUER: ${OIDC_ISSUER:-}

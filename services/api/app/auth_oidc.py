@@ -96,3 +96,11 @@ def verify_state(signed: str, key: str) -> str | None:
     value, mac = signed.rsplit(".", 1)
     expected = hmac.new(key.encode(), value.encode(), hashlib.sha256).hexdigest()
     return value if hmac.compare_digest(mac, expected) else None
+
+
+def verify_state_rotated(signed: str, settings) -> str | None:
+    """Accept state cookies signed with the current or (during rotation) previous key."""
+    raw = verify_state(signed, settings.session_signing_key)
+    if raw is None and settings.session_signing_key_previous:
+        raw = verify_state(signed, settings.session_signing_key_previous)
+    return raw
