@@ -5,6 +5,14 @@
 实现规格见 `Harness-Implementation-Guide.md`；真实执行结果与「待验证」清单见
 `docs/verification.md`；上游版本锁定见 `upstream.lock.json`。
 
+## 文档集
+- 需求：`docs/REQUIREMENTS.md`（功能/非功能需求、T01–T17 验收映射）
+- 设计：`docs/DESIGN.md`（架构、对象模型、时序、隔离/安全设计、威胁模型）
+- 技术：`docs/TECHNICAL.md`（技术栈、API、配置、数据、测试、代理链路）
+- 部署：`docs/DEPLOYMENT.md`（开发/生产、secrets、TLS、网络、升级回滚）
+- 操作：`docs/OPERATIONS.md`（日常流程、Runbook、巡检、故障排查、应急响应）
+- 验收：`docs/verification.md`（真实执行记录与极端条件测试 1.28/1.29）
+
 ## 环境
 Windows 11 · Docker Desktop（Linux 容器）· FastAPI · Vue 3 · 本机 PostgreSQL(postgis) · DeepSeek。
 只操作 PostgreSQL 的 `harness` / `harness_test` 专用 schema；不触碰既有 GIS 表、public、

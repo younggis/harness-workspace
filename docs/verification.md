@@ -474,6 +474,19 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 新增回归测试：`test_runtime_config_pins_public_host_to_loopback`（ExtraHosts 与内部网络）、`test_me_role.py` 2 项（role 字段）
 - 修复后全量复跑（离线）**51 passed / 7 skipped**，（带集成环境）**56 passed / 2 skipped**；前端与 API 镜像已重建并上线
 
+### 1.29 极端条件 / 异常输入验收（本轮）
+- **离线异常测试** `tests/test_edge_cases.py`：**26 passed / 4 skipped**（4 项为 Linux dir_fd 文件服务，改由容器内真实探针覆盖）
+  - 认证滥用：空/超长字段、畸形 JSON、失败 5 次限流 429、无效/过期/撤销 Cookie、禁用用户、错误 CSRF、跨租户切租户被拒、成员资格撤销后 403
+  - 畸形输入：非法 UUID 422、未知 action 404、重复租户/用户 409、MFA 未 enroll/错误码、SCIM 怪异用户名归一化+重复冲突、token 空 scope/越界有效期
+  - 隔离：跨租户空间统一 404、跨租户成员列表 403、跨租户票据 404
+  - 幂等：相同 key 同参数返回同一操作、不同参数 409、缺 key 409
+  - 文件服务路径语法：穿越/绝对/反斜杠/NUL/空目录全部拒绝
+- **容器内真实文件服务探针** `scripts/fileservice_probe.py`：**19/19 PASS**（`FILESERVICE_PROBE_PASS`）
+  - 路径穿越/符号链接/非普通文件/ETag 冲突/创建冲突/超限写入全部拒绝；读写建移动删正常
+- **真实网关异常**：票据创建 201；错误 Origin → 403；合法兑换 → 303；重放 → 403；错误 Host 绑定 → 403
+- **跨空间网络隔离**：从空间 A 解析空间 B 别名 DNS 失败；直连 B 容器 IP → 101(Network unreachable)
+- 本轮新增 5 份文档：`docs/REQUIREMENTS.md`、`DESIGN.md`、`TECHNICAL.md`、`DEPLOYMENT.md`、`OPERATIONS.md`
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：
