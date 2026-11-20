@@ -66,7 +66,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Monitor, Right, Loading } from '@element-plus/icons-vue'
-import { api, enterWorkspace } from '../api'
+import { api, enterWorkspace, newId } from '../api'
 
 const workspaces = ref<any[]>([]), tenants = ref<any[]>([]), active = ref('')
 const loading = ref(false), entering = ref(''), ticketDialog = ref(false), ticketError = ref('')
@@ -89,7 +89,7 @@ async function switchTenant(id: string) {
 }
 async function act(row: any, a: string) {
   try {
-    await api(`/api/workspaces/${row.id}/actions/${a}`, { method:'POST', headers:{ 'Idempotency-Key': crypto.randomUUID() } })
+    await api(`/api/workspaces/${row.id}/actions/${a}`, { method:'POST', headers:{ 'Idempotency-Key': newId() } })
     ElMessage.success(a==='start' ? '已提交启动请求' : '已提交停止请求'); await load()
   } catch (e:any) { ElMessage.error(e.message) }
 }

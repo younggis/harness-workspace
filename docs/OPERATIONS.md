@@ -83,6 +83,7 @@ docker inspect <runtime-cid> --format '{{json .NetworkSettings.Networks}}'
 | `FORBIDDEN` on admin | 角色非平台/租户管理员 | 用管理员账号或检查 membership 角色 |
 | 普通成员看到“管理”菜单 | 旧前端缓存 / role 未返回 | 确认 `/api/me` tenants 含 role；硬刷新清缓存 |
 | 未登录点“工作台”报“无权限” | 旧前端缓存（含缺失的路由守卫） | 硬刷新加载新 bundle；`/` 应自动跳 `/login`；顶部不应显示“工作台” |
+| 启动/停止报 `crypto.randomUUID is not a function` | 旧前端 bundle；HTTP nip.io 非安全上下文 | 硬刷新加载新 bundle（`newId()` 有 getRandomValues 回退） |
 | 登录 `RATE_LIMITED` | 5 次/300s 失败 | 等待窗口过期或换账号；检查是否口令错误 |
 | 票据 `Invalid or expired ticket` | 重放/过期/会话撤销 | 重新从工作台进入生成新票据 |
 | WS 终端连不上 | Host/Origin 不匹配或网关未挂 | 用空间域名访问；检查 relay 入网与 worker 对账 |

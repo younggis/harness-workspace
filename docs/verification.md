@@ -518,6 +518,13 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
   - 浏览器 UI：新建租户表单含 6 项资源字段；实建 `ui-res-927567` = 3核/2GiB/512pids、总量 6核/4GiB/1024；工作台卡片显示「资源 2核/2.0GB/512pids」
 - 运维发现并处理：历史遗留 21 个孤立空间网络占满 Docker 地址池（`all predefined address pools have been fully subnetted`），清理后新空间正常启动；新增 `scripts/cleanup-space-networks.ps1`（默认 dry-run，`-Apply` 执行）
 
+### 1.33 修复：工作台「启动/停止」按钮报 `crypto.randomUUID is not a function`
+- 现象：工作台个人空间点「启动」「停止」弹出 `crypto.randomUUID is not a function`；管理页「分配空间」同样风险
+- 根因：`crypto.randomUUID()` 仅在安全上下文（HTTPS/localhost）可用；开发门户经 `http://portal.127.0.0.1.nip.io:8080` 访问，不是安全上下文
+- 修复：`apps/portal/src/api.ts` 新增 `newId()`——优先 `crypto.randomUUID()`，不可用时用 `crypto.getRandomValues()`（非安全上下文可用）生成 UUID v4，兜底 `Math.random()`；`Home.vue`、`Admin.vue` 的 `Idempotency-Key` 全部改用 `newId()`
+- 回归：`apps/portal/src/api.test.ts` 2 项（randomUUID 路径 + 非安全上下文回退路径）；前端共 **6 passed**
+- 真实浏览器复验：点「停止」→ `已提交停止请求`、期望状态转 stopped；点「启动」→ `已提交启动请求`、期望状态转 running；无 `crypto` 错误。worker 日志显示 stop/start 均 succeeded，运行时容器被重建
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

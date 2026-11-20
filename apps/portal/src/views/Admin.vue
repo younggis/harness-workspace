@@ -189,7 +189,7 @@
 <script setup lang="ts">
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api } from '../api'
+import { api, newId } from '../api'
 
 const tenants = ref<any[]>([]), users = ref<any[]>([]), members = ref<any[]>([])
 const workspaces = ref<any[]>([]), templates = ref<any[]>([])
@@ -291,7 +291,7 @@ async function allocateWs() {
     const body: any = { owner_id: ws.owner_id, template_version: ws.template_version }
     if (ws.cpu !== undefined) body.cpu = ws.cpu
     if (ws.memory_gb !== undefined) body.memory_bytes = Math.round(ws.memory_gb * GB)
-    await api(`/api/admin/tenants/${selected.value.id}/workspaces`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) })
+    await api(`/api/admin/tenants/${selected.value.id}/workspaces`, { method: 'POST', headers: { 'Idempotency-Key': newId() }, body: JSON.stringify(body) })
     ws.cpu = undefined; ws.memory_gb = undefined
     await loadWorkspaces()
   }, '空间已分配（可在“我的空间”启动）')
