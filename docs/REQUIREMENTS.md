@@ -35,6 +35,7 @@
 - FR-1.6 服务账号：`/api/me/tokens` 创建/列举/撤销，12 项 scope 白名单，明文仅返回一次。
 
 ### FR-2 租户与授权
+- FR-2.0 租户可定义容器资源策略：单空间 CPU/内存/PIDS 规格 + 运行态总量上限；空间继承并可覆盖；受平台硬上限约束（详见 `docs/TENANT_RESOURCES.md`）。GPU 不在本轮范围。
 - FR-2.1 用户为全局身份，通过 membership 加入租户并持有角色；同一用户可属于多个租户。
 - FR-2.2 空间归属于「租户 + 该租户成员」。
 - FR-2.3 两级角色 + 11 项细粒度权限（`tenant/user/member/workspace/usage/audit/template` 读写）；平台管理员全通过、租户管理员 8 项、成员仅 `workspace:read`。

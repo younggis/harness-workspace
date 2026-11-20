@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer,
+    BigInteger, Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer,
     String, UniqueConstraint, Uuid, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -80,6 +80,13 @@ class Tenant(Base):
     max_running: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     max_workspaces: Mapped[int] = mapped_column(Integer, default=16, nullable=False)
     daily_token_budget: Mapped[int] = mapped_column(Integer, default=1_000_000, nullable=False)
+    # Tenant-declared container resource policy (CPU/RAM/PIDS; no GPU in this release).
+    cpu_per_space: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    memory_per_space_bytes: Mapped[int] = mapped_column(BigInteger, default=1073741824, nullable=False)
+    pids_per_space: Mapped[int] = mapped_column(Integer, default=256, nullable=False)
+    max_total_cpu: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    max_total_memory_bytes: Mapped[int] = mapped_column(BigInteger, default=4294967296, nullable=False)
+    max_total_pids: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
@@ -135,6 +142,10 @@ class Workspace(Base):
     auth_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Effective container resources. NULL means "inherit from template" (legacy rows).
+    cpu: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    memory_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    pids_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     __table_args__ = (
         UniqueConstraint("tenant_id", "owner_id", name="uq_ws_tenant_owner"),

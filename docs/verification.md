@@ -503,6 +503,21 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - 容器探针：隔离 3/3 PASS、文件服务 19/19 PASS；真实网关异常与跨空间网络隔离全部通过
 - 密钥扫描 CLEAN；health 200
 
+### 1.32 租户容器资源配额（CPU / 内存 / PIDS）
+- 产品方案见 `docs/TENANT_RESOURCES.md`（GPU 不在本轮范围：宿主无 NVIDIA Container Toolkit）
+- 迁移 `0007_tenant_resources` 已应用于 harness / harness_test（版本 `0007_tenant_resources`）
+- 模型：`tenants` 新增单空间规格 3 项 + 运行态总量上限 3 项；`workspaces` 新增可空资源字段（NULL=继承模板）
+- 平台上限常量 `limits.py`：CPU 1–32/总量 256、内存 256MiB–64GiB/总量 512GiB、PIDS 64–4096/总量 65536
+- 校验：租户声明不超平台上限、单空间≤总量、下调总量不得低于当前用量；分配可覆盖但不超租户规格；start 时校验运行态总量
+- worker `_spec_for` 优先使用空间资源，老空间 NULL 回退模板
+- `tests/test_tenant_resources.py` 5 项通过；全量离线 **82 passed / 11 skipped**；前端 4 项通过并已重建
+- 真实栈验证：
+  - PATCH test-tenant → cpu_per_space=2/mem=2GiB/pids=512，总量 12核/12GiB/3072 → 200
+  - 分配 testuser 空间（显式 cpu=2/mem=2GiB/pids=512）→ 201；start → 202
+  - `docker inspect` 新运行时：`nano_cpus=2000000000`、`mem=2147483648`、`pids=512`（与声明一致）
+  - 浏览器 UI：新建租户表单含 6 项资源字段；实建 `ui-res-927567` = 3核/2GiB/512pids、总量 6核/4GiB/1024；工作台卡片显示「资源 2核/2.0GB/512pids」
+- 运维发现并处理：历史遗留 21 个孤立空间网络占满 Docker 地址池（`all predefined address pools have been fully subnetted`），清理后新空间正常启动；新增 `scripts/cleanup-space-networks.ps1`（默认 dry-run，`-Apply` 执行）
+
 ## 5. 交付与复跑入口
 
 启动顺序（第 10 节）：

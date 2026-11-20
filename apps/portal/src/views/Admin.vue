@@ -95,11 +95,17 @@
                   <el-form-item><el-select v-model="ws.template_version" style="width:160px">
                     <el-option v-for="t in templates" :key="t.version" :label="t.version" :value="t.version" />
                   </el-select></el-form-item>
+                  <el-form-item label="CPU"><el-input-number v-model="ws.cpu" :min="1" :max="32" style="width:110px" /></el-form-item>
+                  <el-form-item label="内存GB"><el-input-number v-model="ws.memory_gb" :min="0.25" :max="64" :step="0.5" :precision="2" style="width:110px" /></el-form-item>
                   <el-form-item><el-button type="primary" @click="allocateWs">分配空间</el-button></el-form-item>
+                  <div class="hint" style="width:100%">资源留空则继承该租户的单空间规格（当前默认 {{ selected?.cpu_per_space }} 核 / {{ gb(selected?.memory_per_space_bytes) }} GB）。</div>
                 </el-form>
                 <el-table :data="workspaces" v-loading="loading.workspaces" size="small">
                   <el-table-column prop="owner_login" label="所有者" />
                   <el-table-column prop="template_version" label="模板" />
+                  <el-table-column label="资源" width="150">
+                    <template #default="{row}">{{ row.cpu }}核 / {{ gb(row.memory_bytes) }}GB / {{ row.pids_limit }}pids</template>
+                  </el-table-column>
                   <el-table-column prop="observed_state" label="状态" />
                   <el-table-column prop="generation" label="代际" />
                 </el-table>
@@ -109,6 +115,8 @@
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="每日 token 预算">{{ selected.daily_token_budget }}</el-descriptions-item>
                   <el-descriptions-item label="运行 / 空间上限">{{ selected.max_running }} / {{ selected.max_workspaces }}</el-descriptions-item>
+                  <el-descriptions-item label="单空间资源">{{ selected.cpu_per_space }}核 / {{ gb(selected.memory_per_space_bytes) }}GB / {{ selected.pids_per_space }}pids</el-descriptions-item>
+                  <el-descriptions-item label="运行态总量上限">{{ selected.max_total_cpu }}核 / {{ gb(selected.max_total_memory_bytes) }}GB / {{ selected.max_total_pids }}pids</el-descriptions-item>
                 </el-descriptions>
                 <h4>模型用量</h4>
                 <el-table :data="usage.items" size="small">
@@ -138,6 +146,14 @@
         <el-form-item label="运行上限"><el-input-number v-model="newTenant.max_running" :min="0" /></el-form-item>
         <el-form-item label="空间上限"><el-input-number v-model="newTenant.max_workspaces" :min="0" /></el-form-item>
         <el-form-item label="日 token 预算"><el-input-number v-model="newTenant.daily_token_budget" :min="0" :step="100000" /></el-form-item>
+        <el-divider content-position="left">单空间资源</el-divider>
+        <el-form-item label="CPU 核数"><el-input-number v-model="newTenant.cpu_per_space" :min="1" :max="32" /></el-form-item>
+        <el-form-item label="内存 (GB)"><el-input-number v-model="newTenant.memory_gb" :min="0.25" :max="64" :step="0.5" :precision="2" /></el-form-item>
+        <el-form-item label="PIDS 上限"><el-input-number v-model="newTenant.pids_per_space" :min="64" :max="4096" :step="64" /></el-form-item>
+        <el-divider content-position="left">运行态总量上限</el-divider>
+        <el-form-item label="CPU 总量"><el-input-number v-model="newTenant.max_total_cpu" :min="1" :max="256" /></el-form-item>
+        <el-form-item label="内存总量 (GB)"><el-input-number v-model="newTenant.max_total_memory_gb" :min="1" :max="512" :step="1" /></el-form-item>
+        <el-form-item label="PIDS 总量"><el-input-number v-model="newTenant.max_total_pids" :min="1" :max="65536" :step="256" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="tenantDialog=false">取消</el-button><el-button type="primary" @click="createTenant">创建</el-button></template>
     </el-dialog>
@@ -183,10 +199,16 @@ const loading = reactive({ tenants: false, users: false, members: false, workspa
 const tenantDialog = ref(false), userDialog = ref(false), pwDialog = ref(false)
 const showPw = ref(false), shownPassword = ref('')
 
-const newTenant = reactive({ slug: '', name: '', max_running: 2, max_workspaces: 10, daily_token_budget: 1000000 })
+const GB = 1024 * 1024 * 1024
+const gb = (bytes?: number) => bytes ? (bytes / GB).toFixed(bytes % GB ? 2 : 0) : '1'
+const newTenant = reactive({
+  slug: '', name: '', max_running: 2, max_workspaces: 10, daily_token_budget: 1000000,
+  cpu_per_space: 1, memory_gb: 1, pids_per_space: 256,
+  max_total_cpu: 4, max_total_memory_gb: 4, max_total_pids: 1024,
+})
 const newUser = reactive({ login: '', display_name: '', password: '', is_platform_admin: false })
 const member = reactive({ login: '', role: 'member' })
-const ws = reactive({ owner_id: '', template_version: '' })
+const ws = reactive({ owner_id: '', template_version: '', cpu: undefined as number | undefined, memory_gb: undefined as number | undefined })
 
 function genPassword() {
   const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%'
@@ -203,6 +225,7 @@ async function selectTenant(row: any) {
   if (!row) return
   selected.value = row
   member.login = ''; ws.owner_id = ''
+  ws.cpu = undefined; ws.memory_gb = undefined
   if (templates.value.length) ws.template_version = templates.value[0].version
   await Promise.all([loadMembers(), loadWorkspaces(), loadUsage(), loadAudit()])
 }
@@ -213,7 +236,12 @@ async function loadAudit() { if (!selected.value) return; audit.value = (await a
 
 async function createTenant() {
   await run(async () => {
-    await api('/api/admin/tenants', { method: 'POST', body: JSON.stringify(newTenant) })
+    const { memory_gb, max_total_memory_gb, ...rest } = newTenant
+    await api('/api/admin/tenants', { method: 'POST', body: JSON.stringify({
+      ...rest,
+      memory_per_space_bytes: Math.round(memory_gb * GB),
+      max_total_memory_bytes: Math.round(max_total_memory_gb * GB),
+    }) })
     tenantDialog.value = false; await loadTenants()
   }, '租户已创建')
 }
@@ -260,7 +288,11 @@ async function toggleMember(row: any) {
 async function allocateWs() {
   if (!selected.value || !ws.owner_id || !ws.template_version) { ElMessage.warning('请选择所有者和模板'); return }
   await run(async () => {
-    await api(`/api/admin/tenants/${selected.value.id}/workspaces`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ owner_id: ws.owner_id, template_version: ws.template_version }) })
+    const body: any = { owner_id: ws.owner_id, template_version: ws.template_version }
+    if (ws.cpu !== undefined) body.cpu = ws.cpu
+    if (ws.memory_gb !== undefined) body.memory_bytes = Math.round(ws.memory_gb * GB)
+    await api(`/api/admin/tenants/${selected.value.id}/workspaces`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) })
+    ws.cpu = undefined; ws.memory_gb = undefined
     await loadWorkspaces()
   }, '空间已分配（可在“我的空间”启动）')
 }

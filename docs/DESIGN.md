@@ -49,6 +49,8 @@ edge (nginx) ──▶ api (控制面: 身份/租户/票据/网关/审计)
 
 身份域：`users`、`tenants`、`memberships`、`auth_sessions`、`api_tokens`
 资源域：`templates`、`workspaces`、`workspace_operations`、`runtime_credentials`、`entry_tickets`、`workspace_sessions`
+
+租户资源策略（0007）：`tenants` 持有单空间规格与运行态总量上限；`workspaces` 持有可空资源字段（NULL=继承模板），worker 优先使用空间资源。详见 `docs/TENANT_RESOURCES.md`。
 运行域：`model_requests`、`budget_buckets`、`audit_events`
 
 关键关系：

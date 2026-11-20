@@ -112,8 +112,9 @@ docs/              本文档集与验收记录
 
 ## 5. 数据与迁移
 
-- Alembic：`0001_init` → `0002_lifecycle_constraints` → `0003_template_dsh_version` → `0004_credential_hash_reissue` → `0005_user_mfa` → `0006_api_tokens`。
-- 当前 schema 版本：`0006_api_tokens`（harness 与 harness_test 均已升级）。
+- Alembic：`0001_init` → `0002_lifecycle_constraints` → `0003_template_dsh_version` → `0004_credential_hash_reissue` → `0005_user_mfa` → `0006_api_tokens` → `0007_tenant_resources`。
+- 当前 schema 版本：`0007_tenant_resources`（harness 与 harness_test 均已升级）。
+- 租户资源策略：`common/harness_common/limits.py`（平台上限）、`services/api/app/resources.py`（校验/继承/总量检查）、`docs/TENANT_RESOURCES.md`（方案）。
 - 引导：`db/bootstrap.psql` 创建专用角色；迁移角色拥有 DDL，应用角色仅 DML。
 
 ## 6. 网关代理链路（排障关键）
@@ -139,7 +140,7 @@ docs/              本文档集与验收记录
 | e2e | `HARNESS_E2E=1` | 真实浏览器 |
 | live | 有效 DeepSeek key | 产生费用 |
 
-当前结果：离线 **77 passed / 11 skipped**；带集成环境 **82 passed / 6 skipped**；前端 **4 passed**（路由守卫）。
+当前结果：离线 **82 passed / 11 skipped**；带集成环境 **87 passed / 6 skipped**；前端 **4 passed**（路由守卫）。
 专项探针：`scripts/runtime_isolation_probe.py`（容器内隔离）、`scripts/fileservice_probe.py`（容器内文件服务，19/19 通过）。
 
 ## 8. 上游锁定与升级门禁

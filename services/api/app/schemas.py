@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from harness_common import limits as L
+
 
 class LoginIn(BaseModel):
     login: str = Field(min_length=1, max_length=255)
@@ -17,6 +19,19 @@ class TenantBrief(BaseModel):
     slug: str
     name: str
     role: str = ""  # membership role of the current user in this tenant
+
+
+class TenantOut(TenantBrief):
+    status: str = "active"
+    max_running: int = 4
+    max_workspaces: int = 16
+    daily_token_budget: int = 1_000_000
+    cpu_per_space: int = L.DEFAULT_CPU_PER_SPACE
+    memory_per_space_bytes: int = L.DEFAULT_MEMORY_PER_SPACE
+    pids_per_space: int = L.DEFAULT_PIDS_PER_SPACE
+    max_total_cpu: int = L.DEFAULT_MAX_TOTAL_CPU
+    max_total_memory_bytes: int = L.DEFAULT_MAX_TOTAL_MEMORY
+    max_total_pids: int = L.DEFAULT_MAX_TOTAL_PIDS
 
 
 class UserBrief(BaseModel):
@@ -44,7 +59,17 @@ class ActiveTenantIn(BaseModel):
     tenant_id: uuid.UUID
 
 
-class CreateTenantIn(BaseModel):
+class _TenantResourceFields(BaseModel):
+    cpu_per_space: int = Field(default=L.DEFAULT_CPU_PER_SPACE, ge=L.MIN_CPU, le=L.MAX_CPU_PER_SPACE)
+    memory_per_space_bytes: int = Field(default=L.DEFAULT_MEMORY_PER_SPACE,
+                                        ge=L.MIN_MEMORY_BYTES, le=L.MAX_MEMORY_PER_SPACE)
+    pids_per_space: int = Field(default=L.DEFAULT_PIDS_PER_SPACE, ge=L.MIN_PIDS, le=L.MAX_PIDS_PER_SPACE)
+    max_total_cpu: int = Field(default=L.DEFAULT_MAX_TOTAL_CPU, ge=1, le=L.MAX_TOTAL_CPU)
+    max_total_memory_bytes: int = Field(default=L.DEFAULT_MAX_TOTAL_MEMORY, ge=1, le=L.MAX_TOTAL_MEMORY_BYTES)
+    max_total_pids: int = Field(default=L.DEFAULT_MAX_TOTAL_PIDS, ge=1, le=L.MAX_TOTAL_PIDS)
+
+
+class CreateTenantIn(_TenantResourceFields):
     slug: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9][a-z0-9-]*$")
     name: str = Field(min_length=1, max_length=255)
     max_running: int = Field(default=4, ge=0, le=1000)
@@ -58,6 +83,12 @@ class PatchTenantIn(BaseModel):
     max_running: int | None = Field(default=None, ge=0, le=1000)
     max_workspaces: int | None = Field(default=None, ge=0, le=10000)
     daily_token_budget: int | None = Field(default=None, ge=0)
+    cpu_per_space: int | None = Field(default=None, ge=L.MIN_CPU, le=L.MAX_CPU_PER_SPACE)
+    memory_per_space_bytes: int | None = Field(default=None, ge=L.MIN_MEMORY_BYTES, le=L.MAX_MEMORY_PER_SPACE)
+    pids_per_space: int | None = Field(default=None, ge=L.MIN_PIDS, le=L.MAX_PIDS_PER_SPACE)
+    max_total_cpu: int | None = Field(default=None, ge=1, le=L.MAX_TOTAL_CPU)
+    max_total_memory_bytes: int | None = Field(default=None, ge=1, le=L.MAX_TOTAL_MEMORY_BYTES)
+    max_total_pids: int | None = Field(default=None, ge=1, le=L.MAX_TOTAL_PIDS)
 
 
 class CreateUserIn(BaseModel):
@@ -75,6 +106,9 @@ class SetMemberIn(BaseModel):
 class CreateWorkspaceIn(BaseModel):
     owner_id: uuid.UUID
     template_version: str = Field(min_length=1, max_length=128)
+    cpu: int | None = Field(default=None, ge=L.MIN_CPU, le=L.MAX_CPU_PER_SPACE)
+    memory_bytes: int | None = Field(default=None, ge=L.MIN_MEMORY_BYTES, le=L.MAX_MEMORY_PER_SPACE)
+    pids_limit: int | None = Field(default=None, ge=L.MIN_PIDS, le=L.MAX_PIDS_PER_SPACE)
 
 
 class WorkspaceOut(BaseModel):
@@ -89,6 +123,9 @@ class WorkspaceOut(BaseModel):
     auth_epoch: int
     error_code: str | None
     actions: list[str]
+    cpu: int
+    memory_bytes: int
+    pids_limit: int
 
 
 class OperationOut(BaseModel):

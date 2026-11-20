@@ -14,6 +14,7 @@ from .. import schemas as s
 from ..deps import (
     DbSession, IdempotencyDep, IdentityDep, PlatformAdminDep, TenantAdminDep,
 )
+from ..resources import check_running_totals, resolve_space_resources
 
 router = APIRouter(prefix="/api")
 
@@ -38,7 +39,7 @@ def _get_visible_workspace(db, identity, wid: uuid.UUID) -> m.Workspace:
     return ws
 
 
-def _workspace_out(ws: m.Workspace, identity) -> s.WorkspaceOut:
+def _workspace_out(ws: m.Workspace, identity, tenant: m.Tenant | None = None) -> s.WorkspaceOut:
     actions: list[str] = []
     if identity.is_platform_admin or identity.role == m.MEMBER_ADMIN:
         actions = ["start", "stop", "rebuild", "disable", "enable"]
@@ -50,6 +51,11 @@ def _workspace_out(ws: m.Workspace, identity) -> s.WorkspaceOut:
         desired_state=ws.desired_state, observed_state=ws.observed_state,
         generation=ws.generation, auth_epoch=ws.auth_epoch, error_code=ws.error_code,
         actions=[a for a in actions if ws.enabled or a in ("enable", "disable")],
+        cpu=ws.cpu if ws.cpu is not None else (tenant.cpu_per_space if tenant else 1),
+        memory_bytes=ws.memory_bytes if ws.memory_bytes is not None else
+            (tenant.memory_per_space_bytes if tenant else 1073741824),
+        pids_limit=ws.pids_limit if ws.pids_limit is not None else
+            (tenant.pids_per_space if tenant else 256),
     )
 
 
@@ -76,7 +82,7 @@ def allocate_workspace(tid: uuid.UUID, body: s.CreateWorkspaceIn, request: Reque
         select(m.Workspace).where(m.Workspace.tenant_id == tid, m.Workspace.owner_id == body.owner_id)
     ).scalar_one_or_none()
     if existing:
-        return _workspace_out(existing, identity)
+        return _workspace_out(existing, identity, tenant)
 
     count = db.execute(
         select(func.count()).select_from(m.Workspace).where(m.Workspace.tenant_id == tid)
@@ -84,15 +90,19 @@ def allocate_workspace(tid: uuid.UUID, body: s.CreateWorkspaceIn, request: Reque
     if count >= tenant.max_workspaces:
         raise APIError("RATE_LIMITED", "Workspace quota exceeded")
 
+    cpu, memory_bytes, pids_limit = resolve_space_resources(
+        tenant, cpu=body.cpu, memory=body.memory_bytes, pids=body.pids_limit,
+    )
     ws = m.Workspace(id=uuid.uuid4(), tenant_id=tid, owner_id=body.owner_id,
-                     template_version=body.template_version)
+                     template_version=body.template_version,
+                     cpu=cpu, memory_bytes=memory_bytes, pids_limit=pids_limit)
     db.add(ws)
     db.add(m.AuditEvent(actor_id=identity.user.id, tenant_id=tid,
                         workspace_id=ws.id, action="workspace.allocate",
                         target=str(body.owner_id), result="success",
                         request_id=request.state.request_id))
     db.commit()
-    return _workspace_out(ws, identity)
+    return _workspace_out(ws, identity, tenant)
 
 
 @router.get("/workspaces", response_model=list[s.WorkspaceOut])
@@ -105,12 +115,14 @@ def list_workspaces(db: DbSession, identity: IdentityDep):
         rows = db.execute(select(m.Workspace).where(m.Workspace.tenant_id == identity.tenant_id)).scalars()
     else:
         rows = db.execute(select(m.Workspace).where(m.Workspace.owner_id == identity.user.id)).scalars()
-    return [_workspace_out(ws, identity) for ws in rows]
+    tenants = {t.id: t for t in db.execute(select(m.Tenant)).scalars()}
+    return [_workspace_out(ws, identity, tenants.get(ws.tenant_id)) for ws in rows]
 
 
 @router.get("/workspaces/{wid}", response_model=s.WorkspaceOut)
 def get_workspace(wid: uuid.UUID, db: DbSession, identity: IdentityDep):
-    return _workspace_out(_get_visible_workspace(db, identity, wid), identity)
+    ws = _get_visible_workspace(db, identity, wid)
+    return _workspace_out(ws, identity, db.get(m.Tenant, ws.tenant_id))
 
 
 @router.post("/workspaces/{wid}/actions/{action}", response_model=s.OperationOut, status_code=202)
@@ -153,6 +165,7 @@ async def workspace_action(wid: uuid.UUID, action: str, request: Request, db: Db
         ).scalar_one()
         if running >= tenant.max_running:
             raise APIError("RATE_LIMITED", "Running workspace quota exceeded")
+        check_running_totals(db, tenant, ws)
 
     target_generation = ws.generation + 1 if action == "rebuild" else ws.generation
     op = m.WorkspaceOperation(

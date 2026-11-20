@@ -48,7 +48,11 @@ def _spec_for(db, ws: m.Workspace) -> SpaceSpec:
     return SpaceSpec(
         workspace_id=str(ws.id), tenant_id=str(ws.tenant_id), generation=ws.generation,
         installation_id=settings.installation_id, image=tpl.image_digest,
-        cpu=tpl.cpu, memory_bytes=tpl.memory_bytes, pids_limit=tpl.pids_limit,
+        # Space-level resources (tenant policy) win; legacy NULL rows still
+        # inherit the immutable template values.
+        cpu=ws.cpu if ws.cpu is not None else tpl.cpu,
+        memory_bytes=ws.memory_bytes if ws.memory_bytes is not None else tpl.memory_bytes,
+        pids_limit=ws.pids_limit if ws.pids_limit is not None else tpl.pids_limit,
         workspace_host=settings.workspace_host(str(ws.id)),
     )
 

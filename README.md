@@ -9,6 +9,7 @@
 - 需求：`docs/REQUIREMENTS.md`（功能/非功能需求、T01–T17 验收映射）
 - 设计：`docs/DESIGN.md`（架构、对象模型、时序、隔离/安全设计、威胁模型）
 - 技术：`docs/TECHNICAL.md`（技术栈、API、配置、数据、测试、代理链路）
+- 租户资源：`docs/TENANT_RESOURCES.md`（CPU/内存/PIDS 配额方案与实施；不含 GPU）
 - 部署：`docs/DEPLOYMENT.md`（开发/生产、secrets、TLS、网络、升级回滚）
 - 操作：`docs/OPERATIONS.md`（日常流程、Runbook、巡检、故障排查、应急响应）
 - 验收：`docs/verification.md`（真实执行记录与极端条件测试 1.28/1.29）
@@ -41,8 +42,8 @@ psql -h 127.0.0.1 -p 5432 -U postgres -d postgis -W -f .\db\bootstrap.psql
 ## 测试
 
 ```powershell
-.\scripts\test.ps1 -Suite offline       # 77 passed / 11 skipped，无需密钥/Docker
-.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（82 passed / 6 skipped）
+.\scripts\test.ps1 -Suite offline       # 82 passed / 11 skipped，无需密钥/Docker
+.\scripts\test.ps1 -Suite integration   # 真实 Docker + PG（87 passed / 6 skipped）
 .\scripts\test.ps1 -Suite e2e           # 真实浏览器（需 HARNESS_E2E=1）
 .\scripts\test.ps1 -Suite live          # 真实 DeepSeek（需有效密钥，产生费用）
 Push-Location apps/portal; pnpm run test; Pop-Location   # 前端路由守卫测试（4 项）

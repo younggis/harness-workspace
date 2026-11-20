@@ -35,6 +35,7 @@
           <div><span>代际</span><b>{{ ws.generation }}</b></div>
           <div><span>期望状态</span><b>{{ ws.desired_state }}</b></div>
           <div><span>错误</span><b>{{ ws.error_code || '—' }}</b></div>
+          <div><span>资源</span><b>{{ ws.cpu }}核 / {{ (ws.memory_bytes/1073741824).toFixed(1) }}GB / {{ ws.pids_limit }}pids</b></div>
         </div>
         <div class="card-actions">
           <el-button :disabled="!ws.actions.includes('start')" @click="act(ws,'start')">启动</el-button>

@@ -79,7 +79,7 @@ docker compose --env-file .env.local -p harness-prod -f compose.prod.yaml up -d
 
 ## 7. 容量与资源
 
-- 单空间模板：1 CPU / 1 GiB / pids 256（见模板表）。
+- 单空间模板：1 CPU / 1 GiB / pids 256（见模板表）；租户可声明自己的单空间规格与运行态总量上限（CPU/内存/PIDS），空间继承并可覆盖，受 `limits.py` 平台上限约束，详见 `docs/TENANT_RESOURCES.md`。GPU 不在本轮范围。
 - 容量基线快照见 `docs/capacity.md`（宿主 16 核/31 GB，开发态每空间约 300 MiB）。
 - **T17 完整压测待专用环境**：冷/热启动 ×5、1/2/4 空间并发。
 

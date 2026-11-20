@@ -16,6 +16,7 @@ from ..deps import (
     DbSession, IdentityDep, PlatformAdminDep, TenantAdminDep,
 )
 from ..permissions import Perm, require_permission
+from ..resources import check_tenant_totals_fit, validate_tenant_policy
 
 router = APIRouter(prefix="/api")
 
@@ -27,21 +28,40 @@ def _require_tenant_scope(identity, tenant_id: uuid.UUID) -> None:
         raise APIError("NOT_FOUND", "Tenant not found")
 
 
-@router.post("/admin/tenants", response_model=s.TenantBrief, status_code=201)
+@router.post("/admin/tenants", response_model=s.TenantOut, status_code=201)
 def create_tenant(body: s.CreateTenantIn, request: Request, db: DbSession, _admin: PlatformAdminDep,
                   _perm=require_permission(Perm.TENANT_WRITE)):
     if db.execute(select(m.Tenant).where(m.Tenant.slug == body.slug)).scalar_one_or_none():
         raise APIError("CONFLICT", "Tenant slug already exists")
+    validate_tenant_policy(
+        cpu=body.cpu_per_space, memory=body.memory_per_space_bytes, pids=body.pids_per_space,
+        max_cpu=body.max_total_cpu, max_memory=body.max_total_memory_bytes,
+        max_pids=body.max_total_pids,
+    )
     tenant = m.Tenant(
         id=uuid.uuid4(), slug=body.slug, name=body.name,
         max_running=body.max_running, max_workspaces=body.max_workspaces,
         daily_token_budget=body.daily_token_budget,
+        cpu_per_space=body.cpu_per_space, memory_per_space_bytes=body.memory_per_space_bytes,
+        pids_per_space=body.pids_per_space, max_total_cpu=body.max_total_cpu,
+        max_total_memory_bytes=body.max_total_memory_bytes, max_total_pids=body.max_total_pids,
     )
     db.add(tenant)
     db.add(m.AuditEvent(actor_id=_admin.user.id, action="tenant.create", target=body.slug,
                         result="success", request_id=request.state.request_id))
     db.commit()
-    return s.TenantBrief(id=tenant.id, slug=tenant.slug, name=tenant.name)
+    return _tenant_out(tenant)
+
+
+def _tenant_out(t: m.Tenant) -> dict:
+    return {
+        "id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
+        "max_running": t.max_running, "max_workspaces": t.max_workspaces,
+        "daily_token_budget": t.daily_token_budget,
+        "cpu_per_space": t.cpu_per_space, "memory_per_space_bytes": t.memory_per_space_bytes,
+        "pids_per_space": t.pids_per_space, "max_total_cpu": t.max_total_cpu,
+        "max_total_memory_bytes": t.max_total_memory_bytes, "max_total_pids": t.max_total_pids,
+    }
 
 
 @router.get("/admin/tenants")
@@ -50,7 +70,11 @@ def list_tenants(db: DbSession, _admin: PlatformAdminDep,
     rows = db.execute(select(m.Tenant).order_by(m.Tenant.created_at).offset(cursor).limit(limit)).scalars()
     return {"items": [
         {"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
-         "max_running": t.max_running, "max_workspaces": t.max_workspaces}
+         "max_running": t.max_running, "max_workspaces": t.max_workspaces,
+         "daily_token_budget": t.daily_token_budget,
+         "cpu_per_space": t.cpu_per_space, "memory_per_space_bytes": t.memory_per_space_bytes,
+         "pids_per_space": t.pids_per_space, "max_total_cpu": t.max_total_cpu,
+         "max_total_memory_bytes": t.max_total_memory_bytes, "max_total_pids": t.max_total_pids}
         for t in rows
     ], "cursor": cursor, "limit": limit}
 
@@ -62,10 +86,19 @@ async def patch_tenant(tid: uuid.UUID, body: s.PatchTenantIn, request: Request,
     tenant = db.get(m.Tenant, tid)
     if not tenant:
         raise APIError("NOT_FOUND", "Tenant not found")
-    for field in ("name", "status", "max_running", "max_workspaces", "daily_token_budget"):
+    fields = ("name", "status", "max_running", "max_workspaces", "daily_token_budget",
+              "cpu_per_space", "memory_per_space_bytes", "pids_per_space",
+              "max_total_cpu", "max_total_memory_bytes", "max_total_pids")
+    for field in fields:
         value = getattr(body, field)
         if value is not None:
             setattr(tenant, field, value)
+    validate_tenant_policy(
+        cpu=tenant.cpu_per_space, memory=tenant.memory_per_space_bytes, pids=tenant.pids_per_space,
+        max_cpu=tenant.max_total_cpu, max_memory=tenant.max_total_memory_bytes,
+        max_pids=tenant.max_total_pids,
+    )
+    check_tenant_totals_fit(db, tenant)
     db.add(m.AuditEvent(actor_id=_admin.user.id, tenant_id=tid, action="tenant.patch",
                         result="success", request_id=request.state.request_id))
     db.commit()
@@ -187,11 +220,15 @@ def list_tenant_workspaces(tid: uuid.UUID, db: DbSession, identity: IdentityDep,
         .where(m.Workspace.tenant_id == tid)
         .order_by(m.Workspace.created_at)
     ).all()
+    tenant = db.get(m.Tenant, tid)
     return {"items": [{
         "id": str(ws.id), "owner_id": str(u.id), "owner_login": u.login_norm,
         "template_version": ws.template_version, "enabled": ws.enabled,
         "desired_state": ws.desired_state, "observed_state": ws.observed_state,
         "generation": ws.generation, "error_code": ws.error_code,
+        "cpu": ws.cpu if ws.cpu is not None else tenant.cpu_per_space,
+        "memory_bytes": ws.memory_bytes if ws.memory_bytes is not None else tenant.memory_per_space_bytes,
+        "pids_limit": ws.pids_limit if ws.pids_limit is not None else tenant.pids_per_space,
     } for ws, u in rows]}
 
 
