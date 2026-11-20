@@ -139,7 +139,7 @@ docs/              本文档集与验收记录
 | e2e | `HARNESS_E2E=1` | 真实浏览器 |
 | live | 有效 DeepSeek key | 产生费用 |
 
-当前结果：离线 **51 passed / 7 skipped**；带集成环境 **56 passed / 2 skipped**。
+当前结果：离线 **77 passed / 11 skipped**；带集成环境 **82 passed / 6 skipped**；前端 **4 passed**（路由守卫）。
 专项探针：`scripts/runtime_isolation_probe.py`（容器内隔离）、`scripts/fileservice_probe.py`（容器内文件服务，19/19 通过）。
 
 ## 8. 上游锁定与升级门禁

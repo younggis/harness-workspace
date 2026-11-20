@@ -1,12 +1,12 @@
 <template>
   <el-container class="shell">
     <el-header class="topbar">
-      <div class="brand" @click="router.push('/')">
+      <div class="brand" @click="router.push(me ? '/' : '/login')">
         <div class="logo">H</div>
         <div class="brand-text"><b>Harness</b><span>Workspace</span></div>
       </div>
       <el-menu mode="horizontal" :default-active="route.path" router class="nav">
-        <el-menu-item index="/"><el-icon><House /></el-icon>工作台</el-menu-item>
+        <el-menu-item index="/" v-if="me"><el-icon><House /></el-icon>工作台</el-menu-item>
         <el-menu-item index="/admin" v-if="me?.user?.is_platform_admin || isTenantAdmin">
           <el-icon><Setting /></el-icon>管理
         </el-menu-item>
@@ -57,15 +57,14 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { House, Setting, ArrowDown } from '@element-plus/icons-vue'
 import { api } from './api'
+import { me, loadMe } from './auth'
 
 const router = useRouter(), route = useRoute()
-const me = ref<any>(null)
 const isTenantAdmin = computed(() => {
   const t = (me.value?.tenants || []).find((x: any) => x.id === me.value?.active_tenant_id)
   return t?.role === 'tenant_admin' || t?.role === 'admin'
 })
 
-async function loadMe() { try { me.value = await api('/api/me') } catch { me.value = null } }
 async function onCommand(cmd: string) {
   if (cmd === 'logout') {
     await api('/api/auth/logout', { method: 'POST' }); me.value = null; ElMessage.success('已退出'); router.push('/login')

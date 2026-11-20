@@ -32,6 +32,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { loadMe } from '../auth'
 const login = ref(''), password = ref(''), busy = ref(false), error = ref('')
 const oidcEnabled = ref(false)
 const router = useRouter()
@@ -45,11 +46,12 @@ async function submit() {
   try {
     if (mfaRequired.value) {
       await api('/api/auth/mfa/complete', { method:'POST', body: JSON.stringify({ code: mfaCode.value }) })
+      await loadMe()
       router.push('/')
     } else {
       const r = await api('/api/auth/login', { method:'POST', body: JSON.stringify({ login:login.value, password:password.value }) })
       if (r?.mfa_required) { mfaRequired.value = true; error.value = '' }
-      else router.push('/')
+      else { await loadMe(); router.push('/') }
     }
   } catch (e:any) { error.value = e.message || '登录失败' }
   finally { busy.value = false }

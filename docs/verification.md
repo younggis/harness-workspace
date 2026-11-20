@@ -472,7 +472,7 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
      `/api/me` 的 `TenantBrief` 增加 `role` 字段，`isTenantAdmin` 改为按当前租户角色判断。复验：a1 在 tenant-a(member) 仅见「工作台」；切换至 test-tenant(tenant_admin) 后出现「管理」。
   9. 租户切换：弹窗选择 Test Tenant → `active_tenant_id` 切换、菜单随角色刷新；退出登录 → 跳回 `/login` 并提示「已退出」
 - 新增回归测试：`test_runtime_config_pins_public_host_to_loopback`（ExtraHosts 与内部网络）、`test_me_role.py` 2 项（role 字段）
-- 修复后全量复跑（离线）**51 passed / 7 skipped**，（带集成环境）**56 passed / 2 skipped**；前端与 API 镜像已重建并上线
+- 修复后全量复跑（离线）**51 passed / 7 skipped**，（带集成环境）**56 passed / 2 skipped**；前端与 API 镜像已重建并上线（本轮最终计数见 1.31）
 
 ### 1.29 极端条件 / 异常输入验收（本轮）
 - **离线异常测试** `tests/test_edge_cases.py`：**26 passed / 4 skipped**（4 项为 Linux dir_fd 文件服务，改由容器内真实探针覆盖）
@@ -486,6 +486,22 @@ DSH Web GUI），20.1K tok，缓存命中 96%。离线 22 项仍全绿。
 - **真实网关异常**：票据创建 201；错误 Origin → 403；合法兑换 → 303；重放 → 403；错误 Host 绑定 → 403
 - **跨空间网络隔离**：从空间 A 解析空间 B 别名 DNS 失败；直连 B 容器 IP → 101(Network unreachable)
 - 本轮新增 5 份文档：`docs/REQUIREMENTS.md`、`DESIGN.md`、`TECHNICAL.md`、`DEPLOYMENT.md`、`OPERATIONS.md`
+
+### 1.30 修复：未登录点击「工作台」报「无权限」
+- 现象：登录页点击顶部「工作台」（或直接访问 `/`、其他受保护路由）会渲染受保护视图并调用需要会话的 API，前端抛出 `无权限 / Not authenticated`。
+- 根因：`router.ts` 虽有 `meta: { auth: true }`，但**缺少导航守卫**执行该元数据；顶部菜单与品牌 Logo 也未区分登录态。
+- 修复：
+  - 新增 `apps/portal/src/auth.ts`：共享响应式 `me` / `ensureMe()`，先解析 `/api/me` 再放行路由。
+  - 新增 `apps/portal/src/authGuard.ts`：`beforeEach` 守卫，未登录访问受保护路由 → 重定向 `/login`；已登录访问 `/login` → 重定向 `/`；文件/终端路由也纳入保护。
+  - `App.vue`：未登录时隐藏「工作台」菜单，品牌点击改为跳转 `/login`；复用共享登录态。
+  - `Login.vue`：登录/MFA 成功后先 `loadMe()` 再跳转，确保守卫看到最新会话。
+- 回归：`apps/portal/src/authGuard.test.ts` 4 项通过（未登录重定向、已登录放行、登录页双向重定向）
+- 真实浏览器复验：未登录访问 `/` 与 `/admin` 均自动跳 `/login`，无「无权限」错误；登录成功后「工作台/管理」正常出现；登出干净返回登录页
+
+### 1.31 最终全量计数（含极端条件与前端）
+- 离线后端 **77 passed / 11 skipped**；带集成环境 **82 passed / 6 skipped**；前端 vitest **4 passed**
+- 容器探针：隔离 3/3 PASS、文件服务 19/19 PASS；真实网关异常与跨空间网络隔离全部通过
+- 密钥扫描 CLEAN；health 200
 
 ## 5. 交付与复跑入口
 
